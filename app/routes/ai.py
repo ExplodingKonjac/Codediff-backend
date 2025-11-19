@@ -11,7 +11,7 @@ class GenerateCode(Resource):
     @jwt_required()
     def post(self):
         """AI 代码生成接口"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         data = request.get_json()
         
         if not data or 'type' not in data or 'session_id' not in data:
@@ -22,7 +22,7 @@ class GenerateCode(Resource):
         
         # 获取会话
         session = Session.query.get_or_404(session_id)
-        if session.user_id != current_user['id']:
+        if session.user_id != current_user:
             return {'error': 'forbidden', 'message': 'Not your session'}, 403
         
         # 获取用户AI配置
@@ -30,11 +30,12 @@ class GenerateCode(Resource):
         ai_config = {
             'api_key': user.ai_api_key,
             'api_url': user.ai_api_url,
+            'ai_model': user.ai_model,
             'context': {
                 'title': session.title,
                 'description': session.description,
-                'user_code': session.user_code.get('content', '') if session.user_code else '',
-                'std_code': session.std_code.get('content', '') if session.std_code else ''
+                'user_code': session.user_code.get('content') if session.user_code else None,
+                'std_code': session.std_code.get('content') if session.std_code else None
             }
         }
         
@@ -46,13 +47,10 @@ class GenerateCode(Resource):
                 result = ai_client.generate_standard(**ai_config)
             else:
                 return {'error': 'invalid_type', 'message': 'Invalid generation type'}, 400
+            print(f"result: {result}")
             
-            return {
-                'generated_code': result['code'],
-                'language': result.get('language', 'cpp'),
-                'confidence': result.get('confidence', 0.95)
-            }, 200
-            
+            return {'generated_code': result, 'lang': 'cpp', 'std': 'c++20'}, 200
+        
         except Exception as e:
             return {
                 'error': 'ai_generation_failed',

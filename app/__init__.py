@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, jsonify, request
 from app.config import config
 from app.extensions import init_extensions
 from app.routes.auth import auth_bp
@@ -6,10 +6,19 @@ from app.routes.sessions import sessions_bp
 from app.routes.diff import diff_bp
 from app.routes.ai import ai_bp
 from app.exceptions import register_error_handlers
+import logging
+import time
 
 def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+
+    # 配置日志
+    logging.basicConfig(
+        level=logging.INFO if app.config['DEBUG'] else logging.WARNING,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    app.logger.info(f"Starting application in {config_name} mode")
     
     # 初始化扩展
     init_extensions(app)
@@ -27,5 +36,39 @@ def create_app(config_name='default'):
     @app.route('/health')
     def health_check():
         return {'status': 'ok', 'timestamp': time.time()}, 200
+    
+    # 调试端点：查看 CORS 配置
+    @app.route('/debug/cors')
+    def debug_cors():
+        return jsonify({
+            'cors_origins': app.config.get('CORS_ORIGINS'),
+            'debug_mode': app.config.get('DEBUG'),
+            'env': app.config.get('ENV'),
+            'allowed_headers': [
+                'Content-Type',
+                'Authorization',
+                'X-Requested-With',
+                'Accept',
+                'X-CSRF-Token',
+                'X-XSRF-TOKEN'
+            ]
+        }), 200
+    
+    # CORS 预检请求处理
+    @app.after_request
+    def after_request(response):
+        """统一处理响应头"""
+        origin = request.headers.get('Origin')
+        if origin:
+            # 允许所有来源或配置的来源
+            allowed_origins = app.config.get('CORS_ORIGINS', '*')
+            if allowed_origins == '*' or origin in allowed_origins:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+        
+        # 暴露必要的头部
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Type,Authorization,X-Requested-With'
+        
+        return response
     
     return app

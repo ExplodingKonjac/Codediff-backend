@@ -1,204 +1,80 @@
-import subprocess
-import tempfile
+from app.exceptions import SandboxError
 import os
-import json
 import signal
 from pathlib import Path
 from app.config import config as app_config
+from subprocess import Popen, PIPE
 
-class FirejailSandbox:
-    """使用 Firejail 实现轻量级安全沙箱"""
-    
-    def __init__(self):
-        self.sandbox_exec = app_config[os.getenv('FLASK_ENV', 'default')].SANDBOX_EXECUTABLE
-        self.profile_dir = app_config[os.getenv('FLASK_ENV', 'default')].SANDBOX_PROFILE_DIR
-        self.max_time = app_config[os.getenv('FLASK_ENV', 'default')].MAX_EXEC_TIME
-        self.max_memory = app_config[os.getenv('FLASK_ENV', 'default')].MAX_MEMORY_MB
-    
-    def _get_profile_path(self, profile_type):
-        """获取 Firejail 配置文件路径"""
-        profile_map = {
-            'code-exec': 'code-exec.profile',
-            'generator': 'generator.profile'
-        }
-        profile_file = profile_map.get(profile_type, 'code-exec.profile')
-        return os.path.join(self.profile_dir, profile_file)
-    
-    def _prepare_code(self, code_info, input_data=None):
-        """准备代码执行环境"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # 写入代码文件
-            ext_map = {
-                'c': 'c',
-                'cpp': 'cpp',
-                'c11': 'c',
-                'c17': 'c',
-                'c++11': 'cpp',
-                'c++17': 'cpp',
-                'c++20': 'cpp'
-            }
-            lang = code_info['lang'].lower()
-            ext = ext_map.get(lang, 'cpp')
-            code_path = os.path.join(tmpdir, f'code.{ext}')
-            
-            with open(code_path, 'w') as f:
-                f.write(code_info['content'])
-            
-            # 写入输入文件
-            if input_data:
-                input_path = os.path.join(tmpdir, 'input.txt')
-                with open(input_path, 'w') as f:
-                    f.write(input_data)
-            
-            return tmpdir
-    
-    def execute_code(self, code_info, input_data=None, profile_type='code-exec'):
-        """
-        在沙箱中执行代码
-        
-        Args:
-            code_info: {'lang': 'cpp', 'std': 'c++17', 'content': '...'}
-            input_data: 输入数据字符串
-            profile_type: 'code-exec' 或 'generator'
-        
-        Returns:
-            {
-                'stdout': str,
-                'stderr': str,
-                'returncode': int,
-                'time_cost': float,  # ms
-                'memory_cost': float  # MB
-            }
-        """
-        # 准备执行环境
-        tmpdir = self._prepare_code(code_info, input_data)
-        
-        # 构建编译命令
-        lang = code_info['lang'].lower()
-        std = code_info.get('std', '').lower()
-        compile_cmd = self._build_compile_command(lang, std, tmpdir)
-        
-        # 构建运行命令
-        run_cmd = self._build_run_command(lang, tmpdir, input_data)
-        
-        # 构建 Firejail 命令
-        firejail_cmd = self._build_firejail_command(profile_type, tmpdir)
-        
-        try:
-            # 执行编译
-            compile_result = self._run_command(firejail_cmd + compile_cmd, tmpdir)
-            if compile_result['returncode'] != 0:
-                return {
-                    'stdout': '',
-                    'stderr': compile_result['stderr'],
-                    'returncode': compile_result['returncode'],
-                    'time_cost': compile_result['time_cost'],
-                    'memory_cost': compile_result['memory_cost'],
-                    'error': 'COMPILATION_FAILED'
-                }
-            
-            # 执行程序
-            run_result = self._run_command(firejail_cmd + run_cmd, tmpdir)
-            return run_result
-            
-        finally:
-            # 清理临时目录
-            try:
-                Path(tmpdir).rmdir()
-            except:
-                pass
-    
-    def _build_compile_command(self, lang, std, tmpdir):
-        """构建编译命令"""
-        if lang in ['c', 'c11', 'c17']:
-            cmd = ['gcc']
-            if std:
-                cmd.append(f'-std={std}')
-            cmd.extend(['-o', os.path.join(tmpdir, 'a.out'), os.path.join(tmpdir, 'code.c')])
-        elif lang in ['cpp', 'c++11', 'c++17', 'c++20']:
-            cmd = ['g++']
-            if std:
-                cmd.append(f'-std={std}')
-            cmd.extend(['-o', os.path.join(tmpdir, 'a.out'), os.path.join(tmpdir, 'code.cpp')])
+def get_result_from_exit_status(exit_status):
+    if os.WIFEXITED(exit_status):
+        return {'type': 'OK', 'code': os.WEXITSTATUS(exit_status)}
+    elif os.WIFSIGNALED(exit_status):
+        sig = os.WTERMSIG(exit_status)
+        if sig == signal.SIGKILL:
+            return {'type': 'TLE_or_MLE', 'code': sig}
+        elif sig == signal.SIGXFSZ:
+            return {'type': 'OLE', 'code': sig}
         else:
-            raise ValueError(f'Unsupported language: {lang}')
-        
-        return cmd
+            return {'type': 'RE', 'code': sig}
+    else:
+        return {'type': 'UKE', 'code': exit_status}
+
+def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], *args, **kwargs):
+    config = app_config[os.getenv('FLASK_ENV', 'default')]
+    return Popen([
+        config.SANDBOX_EXECUTABLE,
+        '--ro-bind', config.RLIMIT_WRAPPER_EXECUTABLE, '/wrapper',
+        '--ro-bind', '/usr', '/usr',
+        '--symlink', 'usr/lib', '/lib',
+        '--symlink', 'usr/lib64', '/lib64',
+        '--proc', '/proc',
+        '--dev', '/dev',
+        '--dir', '/home',
+        '--chdir', '/home',
+        *extra_args,
+        '--', '/wrapper', str(rlim_cpu), str(rlim_as), str(rlim_fsz), *cmd
+    ], *args, **kwargs)
+
+def run_compiler(code, out, lang, std):
+    if lang.lower() == 'c':
+        cmd = ['gcc', '-x', 'c', f'-std={std}', '-O2', 'code', '-o', 'out']
+    elif lang.lower() == 'cpp':
+        cmd = ['g++', '-x', 'c++', f'-std={std}', '-O2', 'code', '-o', 'out']
+    else:
+        raise SandboxError("Unknown language")
     
-    def _build_run_command(self, lang, tmpdir, input_data):
-        """构建运行命令"""
-        cmd = [os.path.join(tmpdir, 'a.out')]
-        if input_data:
-            cmd = ['timeout', str(self.max_time), os.path.join(tmpdir, 'a.out')]
-        return cmd
+    child = launch_sandbox(cmd, 10, 512 * 1024 * 1024, 16 * 1024 * 1024, extra_args=[
+        '--ro-bind', code, '/home/code',
+        '--bind', out, '/home/out',
+        '--bind', app_config[os.getenv('FLASK_ENV', 'default')].TESTLIB_PATH, '/home/testlib.h' 
+    ], stdout=PIPE, stderr=PIPE)
     
-    def _build_firejail_command(self, profile_type, tmpdir):
-        """构建 Firejail 命令"""
-        profile_path = self._get_profile_path(profile_type)
-        
-        cmd = [
-            self.sandbox_exec,
-            f'--profile={profile_path}',
-            f'--timeout={self.max_time}',
-            f'--rlimit-as={self.max_memory}M',
-            f'--private={tmpdir}',
-            '--private-tmp',
-            '--noprofile',
-            '--quiet'
-        ]
-        
-        # 根据配置添加额外限制
-        if app_config[os.getenv('FLASK_ENV', 'default')].DEBUG:
-            cmd.append('--debug')
-        
-        return cmd
-    
-    def _run_command(self, command, working_dir):
-        """执行命令并返回结果"""
-        start_time = os.times()
-        
-        try:
-            result = subprocess.run(
-                command,
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=self.max_time + 1,
-                check=False
-            )
-            end_time = os.times()
-            
-            # 计算时间和内存
-            time_cost = (end_time.elapsed - start_time.elapsed) * 1000  # ms
-            memory_cost = self._estimate_memory(result)
-            
-            return {
-                'stdout': result.stdout.strip(),
-                'stderr': result.stderr.strip(),
-                'returncode': result.returncode,
-                'time_cost': min(time_cost, self.max_time * 1000),
-                'memory_cost': min(memory_cost, self.max_memory)
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                'stdout': '',
-                'stderr': f'Execution timed out after {self.max_time} seconds',
-                'returncode': -signal.SIGKILL,
-                'time_cost': self.max_time * 1000,
-                'memory_cost': 0,
-                'error': 'TIMEOUT'
-            }
-        except Exception as e:
-            return {
-                'stdout': '',
-                'stderr': str(e),
-                'returncode': -1,
-                'time_cost': 0,
-                'memory_cost': 0,
-                'error': 'EXECUTION_ERROR'
-            }
-    
-    def _estimate_memory(self, result):
-        """估算内存使用（简化版）"""
-        # 实际生产环境应使用 cgroups 或 firejail --mem
-        return len(result.stdout) / 1024 + len(result.stderr) / 1024 
+    _, stderr = child.communicate()
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode()
+
+    res = get_result_from_exit_status(child.returncode)
+    if res['type'] == 'RE':
+        if res['code'] == 1:
+            return 'failed', {'message': "Compile Error", 'detail': stderr[:1024]}
+        else:
+            return 'failed', {'message': f"Compiler {res['type']}", 'detail': ""}
+    else:
+        return 'status', {'message': "Success", 'detail': stderr[:1024]}
+
+def run_program(filename, args = [], input_data = None):
+    child = launch_sandbox(['/exe', *args], 5, 256 * 1024 * 1024, 1024 * 1024, extra_args=[
+        '--ro-bind', filename, '/exe'
+    ], stdout=PIPE, stderr=PIPE, stdin=PIPE)
+
+    data, stderr = child.communicate(None if input_data is None else input_data.encode())
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode()
+    if isinstance(data, bytes):
+        data = data.decode()
+
+    time_ms = 0
+    memory_mb = 0
+    result = get_result_from_exit_status(child.returncode)
+
+    return result, data, time_ms, memory_mb

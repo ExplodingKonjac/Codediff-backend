@@ -12,6 +12,10 @@ from app.exceptions import APIError
 from werkzeug.security import check_password_hash
 
 class Register(Resource):
+    def options(self):
+        """处理预检请求"""
+        return '', 204
+    
     def post(self):
         """用户注册"""
         data = request.get_json()
@@ -31,30 +35,39 @@ class Register(Resource):
             username=data['username'],
             email=data['email'],
             ai_api_key=data.get('ai_api_key', ''),
-            ai_api_url=data.get('ai_api_url', '')
+            ai_api_url=data.get('ai_api_url', ''),
+            ai_model=data.get('ai_model', '')
         )
         user.set_password(data['password'])
         
         db.session.add(user)
         db.session.commit()
-        
+
+        user_id = str(user.id)  # 转换为字符串
+
         # 生成令牌
-        access_token = create_access_token(identity=user.to_dict())
-        refresh_token = create_refresh_token(identity=user.to_dict())
+        access_token = create_access_token(identity=user_id)
+        refresh_token = create_refresh_token(identity=user_id)
         
-        response = jsonify({
+        response_data = {
             'user': user.to_dict(),
             'access_token': access_token,
             'refresh_token': refresh_token
-        })
+        }
+
+        response = jsonify(response_data)
         
         # 设置 cookies (可选)
         set_access_cookies(response, access_token)
         set_refresh_cookies(response, refresh_token)
         
-        return response
+        return response, 201
+
 
 class Login(Resource):
+    def options(self):
+        return '', 204
+    
     def post(self):
         """用户登录"""
         data = request.get_json()
@@ -73,23 +86,31 @@ class Login(Resource):
         # 更新最后登录时间
         user.last_login = db.func.current_timestamp()
         db.session.commit()
+
+        user_id = str(user.id)
         
         # 生成令牌
-        access_token = create_access_token(identity=user.to_dict())
-        refresh_token = create_refresh_token(identity=user.to_dict())
+        access_token = create_access_token(identity=user_id)
+        refresh_token = create_refresh_token(identity=user_id)
         
-        response = jsonify({
+        response_data = {
             'user': user.to_dict(),
             'access_token': access_token,
             'refresh_token': refresh_token
-        })
+        }
+        
+        response = jsonify(response_data)
         
         set_access_cookies(response, access_token)
         set_refresh_cookies(response, refresh_token)
         
         return response
 
+
 class Logout(Resource):
+    def options(self):
+        return '', 204
+
     @jwt_required()
     def post(self):
         """用户登出"""
@@ -97,19 +118,38 @@ class Logout(Resource):
         unset_jwt_cookies(response)
         return response
 
+    def options(self):
+        return '', 204
+
+
 class UserProfile(Resource):
     @jwt_required()
     def get(self):
         """获取当前用户信息"""
-        current_user = get_jwt_identity()
-        return current_user
+        current_user_id = get_jwt_identity()
+        
+        try:
+            user_id = int(current_user_id)
+        except (ValueError, TypeError):
+            raise APIError('Invalid user ID', 401)
+        
+        user = User.query.get(user_id)
+        if not user:
+            raise APIError('User not found', 404)
+        
+        return user.to_dict()
     
     @jwt_required()
     def put(self):
         """更新当前用户信息"""
-        current_user = get_jwt_identity()
-        user = User.query.get(current_user['id'])
+        current_user_id = get_jwt_identity()
         
+        try:
+            user_id = int(current_user_id)
+        except (ValueError, TypeError):
+            raise APIError('Invalid user ID', 401)
+        
+        user = User.query.get(user_id)
         if not user:
             raise APIError('User not found', 404)
         
@@ -131,6 +171,9 @@ class UserProfile(Resource):
         
         if 'ai_api_url' in data:
             user.ai_api_url = data['ai_api_url']
+        
+        if 'ai_model' in data:
+            user.ai_model = data['ai_model']
         
         if 'password' in data and 'new_password' in data:
             if not user.check_password(data['password']):

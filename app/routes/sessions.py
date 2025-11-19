@@ -4,13 +4,15 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import Session, TestCase
 from app.extensions import db
 from app.exceptions import APIError
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
+import json
 
 class SessionList(Resource):
     @jwt_required()
     def get(self):
         """获取用户所有会话 (元信息)"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         
         # 分页参数
         page = request.args.get('page', 1, type=int)
@@ -19,7 +21,7 @@ class SessionList(Resource):
         order = request.args.get('order', 'desc')
         
         # 构建查询
-        query = Session.query.filter_by(user_id=current_user['id'])
+        query = Session.query.filter_by(user_id=current_user)
         
         # 排序
         if sort_by in ['created_at', 'updated_at', 'title']:
@@ -60,7 +62,7 @@ class SessionList(Resource):
     @jwt_required()
     def post(self):
         """创建新会话"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         data = request.get_json()
         
         if not data or 'title' not in data:
@@ -74,7 +76,7 @@ class SessionList(Resource):
         
         # 创建新会话
         session = Session(
-            user_id=current_user['id'],
+            user_id=current_user,
             title=data['title'],
             description=data.get('description', ''),
             user_code={
@@ -106,10 +108,10 @@ class SessionDetail(Resource):
     @jwt_required()
     def get(self, session_id):
         """获取会话详情"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         session = Session.query.get_or_404(session_id)
         
-        if session.user_id != current_user['id']:
+        if session.user_id != current_user:
             raise APIError('Not your session', 403)
         
         return session.to_dict(include_cases=True)
@@ -117,14 +119,14 @@ class SessionDetail(Resource):
     @jwt_required()
     def put(self, session_id):
         """更新会话"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         session = Session.query.get_or_404(session_id)
         
-        if session.user_id != current_user['id']:
+        if session.user_id != current_user:
             raise APIError('Not your session', 403)
         
         data = request.get_json()
-        
+
         # 更新字段
         updatable_fields = ['title', 'description']
         for field in updatable_fields:
@@ -143,7 +145,7 @@ class SessionDetail(Resource):
                 }
                 setattr(session, field, updated_value)
         
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         db.session.commit()
         
         return session.to_dict()
@@ -151,10 +153,10 @@ class SessionDetail(Resource):
     @jwt_required()
     def delete(self, session_id):
         """删除会话"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         session = Session.query.get_or_404(session_id)
         
-        if session.user_id != current_user['id']:
+        if session.user_id != current_user:
             raise APIError('Not your session', 403)
         
         db.session.delete(session)

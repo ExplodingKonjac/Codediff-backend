@@ -1,142 +1,171 @@
 from flask import request, Response, stream_with_context
 from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app.extensions import db
 from app.config import config as app_config
 from app.models import Session, TestCase
-from app.utils.sandbox import FirejailSandbox
+from app.utils.sandbox import run_compiler, run_program
 from app.utils.sse import sse_response
-import os
-import time
+from tempfile import TemporaryDirectory
+from pathlib import Path
+import string
+import random
+import logging
 
-sandbox = FirejailSandbox()
+logger = logging.getLogger(__name__)
+request_stop_set = set()
 
 class StartDiff(Resource):
     @jwt_required()
-    def post(self, session_id):
-        """开始持续对拍 (SSE 流)"""
-        current_user = get_jwt_identity()
-        session = Session.query.get_or_404(session_id)
-        
-        # 验证权限
-        if session.user_id != current_user['id']:
-            return {'error': 'forbidden', 'message': 'Not your session'}, 403
-        
-        # 获取参数
-        data = request.get_json()
-        max_tests = data.get('max_tests', 100)
-        stop_on_fail = data.get('stop_on_fail', True)
-        
-        # 保存原始代码
-        user_code = session.user_code.copy()
-        std_code = session.std_code.copy()
-        gen_code = session.gen_code.copy() if session.gen_code else None
-        
-        def generate_events():
-            """生成 SSE 事件流"""
-            for test_num in range(1, max_tests + 1):
-                try:
-                    # 1. 生成输入数据
-                    if gen_code and gen_code.get('content'):
-                        gen_result = sandbox.execute_code(
-                            gen_code,
-                            profile_type='generator'
-                        )
-                        input_data = gen_result['stdout']
-                        if gen_result['returncode'] != 0:
-                            yield sse_response('error', {
-                                'message': 'Generator failed',
-                                'details': gen_result['stderr'],
-                                'test_num': test_num
-                            })
-                            return
-                    else:
-                        # 默认生成器
-                        a = int(time.time() * 1000) % 100 + 1
-                        b = int(time.time() * 10000) % 100 + 1
-                        input_data = f"{a} {b}"
-                    
-                    # 2. 执行标准代码
-                    std_result = sandbox.execute_code(std_code, input_data)
-                    if std_result['returncode'] != 0:
-                        yield sse_response('error', {
-                            'message': 'Standard code failed',
-                            'details': std_result['stderr'],
-                            'test_num': test_num
-                        })
-                        return
-                    
-                    # 3. 执行用户代码
-                    user_result = sandbox.execute_code(user_code, input_data)
-                    
-                    # 4. 确定状态
-                    status = 'AC'
-                    if user_result['returncode'] != 0:
-                        status = 'RE'
-                    elif user_result.get('error') == 'TIMEOUT':
-                        status = 'TLE'
-                    elif user_result['memory_cost'] > app_config[os.getenv('FLASK_ENV', 'default')].MAX_MEMORY_MB:
-                        status = 'MLE'
-                    elif user_result['stdout'].strip() != std_result['stdout'].strip():
-                        status = 'WA'
-                    
-                    # 5. 保存测试用例
-                    test_case = TestCase(
-                        session_id=session_id,
-                        status=status,
-                        input_data=input_data,
-                        user_output=user_result['stdout'],
-                        std_output=std_result['stdout'],
-                        time_cost=user_result['time_cost'],
-                        memory_cost=user_result['memory_cost']
-                    )
-                    db.session.add(test_case)
-                    db.session.commit()
-                    
-                    # 6. 发送事件
-                    yield sse_response('test_result', {
-                        'test_num': test_num,
-                        'test_case': test_case.to_dict(),
-                        'status': 'running'
-                    })
-                    
-                    # 7. 检查停止条件
-                    if status != 'AC' and stop_on_fail:
-                        yield sse_response('completed', {
-                            'total_tests': test_num,
-                            'success_count': test_num - 1,
-                            'fail_count': 1,
-                            'success_rate': ((test_num - 1) / test_num) * 100,
-                            'reason': 'first_failure'
-                        })
-                        return
-                
-                except Exception as e:
-                    yield sse_response('error', {
-                        'message': 'Execution error',
-                        'details': str(e),
-                        'test_num': test_num
-                    })
-                    return
+    def get(self, session_id):
+        try:
+            # 获取当前用户
+            current_user = get_jwt_identity()
+            if not current_user or not isinstance(current_user, str):
+                logger.warning("Invalid JWT identity")
+                return {'error': 'Invalid token'}, 401
             
-            # 所有测试完成
-            yield sse_response('completed', {
-                'total_tests': max_tests,
-                'success_count': max_tests,
-                'fail_count': 0,
-                'success_rate': 100.0,
-                'reason': 'max_tests_reached'
-            })
+            user_id = int(current_user)
+            if not user_id:
+                logger.warning("Missing user ID in token")
+                return {'error': 'Invalid token'}, 401
+            
+            # 获取会话
+            session = Session.query.get_or_404(session_id)
+            
+            # 验证权限
+            if session.user_id != user_id:
+                logger.warning(f"User {user_id} attempted to access session {session_id} owned by {session.user_id}")
+                return {'error': 'forbidden', 'message': 'Not your session'}, 403
+
+            # 获取参数
+            max_tests = request.args.get('max_tests', 100)
+            stop_on_fail = request.args.get('stop_on_fail', True)
+            
+            # 验证参数
+            if not isinstance(max_tests, int) or max_tests < 1 or max_tests > 1000:
+                max_tests = 1000
+            
+            logger.info(f"Starting continuous diff for session {session_id} with max_tests={max_tests}, stop_on_fail={stop_on_fail}")
+            
+            # 保存原始代码
+            user_code = session.user_code.copy() if session.user_code else {}
+            std_code = session.std_code.copy() if session.std_code else {}
+            gen_code = session.gen_code.copy() if session.gen_code else None
+            
+            # 生成 SSE 响应
+            return Response(
+                stream_with_context(self.diff(
+                    session_id, user_code, std_code, gen_code, max_tests, stop_on_fail
+                )),
+                mimetype='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'X-Accel-Buffering': 'no',  # 禁用 Nginx 缓冲
+                    'Access-Control-Allow-Origin': request.headers.get('Origin', '*'),
+                    'Access-Control-Allow-Credentials': 'true'
+                }
+            )
         
-        return Response(
-            stream_with_context(generate_events()),
-            mimetype='text/event-stream',
-            headers={
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'X-Accel-Buffering': 'no'  # 禁用 Nginx 缓冲
-            }
-        )
+        except Exception as e:
+            logger.exception(f"Error in StartDiff: {str(e)}")
+            return {'error': 'Internal server error', 'message': str(e)}, 500
+    
+    def diff(self, session_id, user_code, std_code, gen_code, max_tests, stop_on_fail):
+        request_stop_set.discard(session_id)
+
+        # delete old data
+        TestCase.query.filter_by(session_id=session_id).delete()
+        db.session.commit()
+
+        with TemporaryDirectory() as temp_dir:
+            temp_dir = Path(temp_dir)
+
+            for s, code in (('user', user_code), ('std', std_code), ('gen', gen_code)):
+                yield sse_response('status', {'status': f"Compiling {s} code"})
+
+                code_file = temp_dir / f'{s}_code'
+                exe_file = temp_dir / f'{s}_exe'
+                Path.write_text(code_file, code['content'])
+                Path.touch(exe_file)
+                type, data = run_compiler(code_file, exe_file, code['lang'], code['std'])
+
+                yield sse_response(type, data)
+                if type == 'failed':
+                    return
+
+            current_testcase = None
+            for i in range(max_tests):
+                if current_testcase:
+                    yield sse_response('test_result', {
+                        'test_num': i,
+                        'test_case': current_testcase.to_dict()
+                    })
+
+                yield sse_response('status', {"status": f"Running test {i + 1}/{max_tests}"})
+                current_testcase = TestCase(
+                    session_id=session_id,
+                    status='',
+                    input_data='',
+                    user_output='',
+                    std_output='',
+                )
+
+                gen_exe_file = temp_dir / 'gen_exe'
+                user_exe_file = temp_dir / 'user_exe'
+                std_exe_file = temp_dir / 'std_exe'
+                
+                random_token = ''.join(random.choice(string.ascii_letters) for _ in range(16))
+                gen_result, input_data, _, _ = run_program(gen_exe_file, [random_token])
+
+                current_testcase.input_data = input_data
+                if gen_result['type'] != 'OK':
+                    current_testcase.status = f"Generator {gen_result['type']}"
+                    db.session.add(current_testcase)
+                    db.session.commit()
+                    break
+
+                user_result, user_output, time_used, memory_used = run_program(user_exe_file, input_data=input_data)
+                current_testcase.user_output = user_output
+                current_testcase.time_used = time_used
+                current_testcase.memory_used = memory_used
+                if user_result['type'] != 'OK':
+                    current_testcase.status = f"User {user_result['type']}"
+                    db.session.add(current_testcase)
+                    db.session.commit()
+                    break
+
+                std_result, std_output, _, _ = run_program(std_exe_file, input_data=input_data)
+                current_testcase.std_output = std_output
+                if std_result['type'] != 'OK':
+                    current_testcase.status = f"Std {std_result['type']}"
+                    db.session.add(current_testcase)
+                    db.session.commit()
+                    break
+
+                normalized_user_output = '\n'.join([s.rstrip() for s in user_output.split('\n')]).rstrip()
+                normalized_std_output = '\n'.join([s.rstrip() for s in std_output.split('\n')]).rstrip()
+                if normalized_user_output != normalized_std_output:
+                    current_testcase.status = 'WA'
+                    db.session.add(current_testcase)
+                    db.session.commit()
+                    break
+                
+                current_testcase.status = 'OK'
+                db.session.add(current_testcase)
+                db.session.commit()
+
+                if session_id in request_stop_set:
+                    yield sse_response('finish', {})
+                    return
+
+            if current_testcase:
+                yield sse_response('test_result', {
+                    'test_num': max_tests,
+                    'test_case': current_testcase.to_dict()
+                })
+            yield sse_response('finish', {})
 
 class StopDiff(Resource):
     @jwt_required()
@@ -144,88 +173,25 @@ class StopDiff(Resource):
         """停止当前对拍"""
         # 实际实现需要维护执行进程映射
         # 简化版：标记会话为停止状态
+        request_stop_set.add(session_id)
         return {'stopped': True, 'session_id': session_id}, 200
 
 class RerunDiff(Resource):
     @jwt_required()
-    def post(self, session_id):
+    def get(self, session_id):
         """重新测试现有数据 (SSE 流)"""
-        current_user = get_jwt_identity()
+        current_user = int(get_jwt_identity())
         session = Session.query.get_or_404(session_id)
         
-        if session.user_id != current_user['id']:
+        if session.user_id != int(current_user):
             return {'error': 'forbidden', 'message': 'Not your session'}, 403
-        
-        # 获取要重测的测试用例
-        data = request.get_json()
-        case_ids = data.get('case_ids', [])
-        
-        if not case_ids:
-            test_cases = session.test_cases
-        else:
-            test_cases = TestCase.query.filter(
-                TestCase.id.in_(case_ids),
-                TestCase.session_id == session_id
-            ).all()
         
         # 保存原始代码
         user_code = session.user_code.copy()
         std_code = session.std_code.copy()
         
-        def generate_events():
-            """生成 SSE 事件流"""
-            for idx, test_case in enumerate(test_cases):
-                try:
-                    # 1. 执行标准代码
-                    std_result = sandbox.execute_code(std_code, test_case.input_data)
-                    
-                    # 2. 执行用户代码
-                    user_result = sandbox.execute_code(user_code, test_case.input_data)
-                    
-                    # 3. 确定状态
-                    status = 'AC'
-                    if user_result['returncode'] != 0:
-                        status = 'RE'
-                    elif user_result.get('error') == 'TIMEOUT':
-                        status = 'TLE'
-                    elif user_result['memory_cost'] > app_config[os.getenv('FLASK_ENV', 'default')].MAX_MEMORY_MB:
-                        status = 'MLE'
-                    elif user_result['stdout'].strip() != std_result['stdout'].strip():
-                        status = 'WA'
-                    
-                    # 4. 更新测试用例
-                    test_case.status = status
-                    test_case.user_output = user_result['stdout']
-                    test_case.std_output = std_result['stdout']
-                    test_case.time_cost = user_result['time_cost']
-                    test_case.memory_cost = user_result['memory_cost']
-                    
-                    db.session.commit()
-                    
-                    # 5. 发送更新事件
-                    yield sse_response('test_update', {
-                        'test_case': test_case.to_dict(),
-                        'progress': {
-                            'current': idx + 1,
-                            'total': len(test_cases)
-                        }
-                    })
-                
-                except Exception as e:
-                    yield sse_response('error', {
-                        'message': 'Rerun error',
-                        'details': str(e),
-                        'case_id': test_case.id
-                    })
-            
-            # 完成事件
-            yield sse_response('completed', {
-                'total_cases': len(test_cases),
-                'updated_cases': len(test_cases)
-            })
-        
         return Response(
-            stream_with_context(generate_events()),
+            stream_with_context(self.rerun(session_id, user_code, std_code)),
             mimetype='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
@@ -233,9 +199,65 @@ class RerunDiff(Resource):
                 'X-Accel-Buffering': 'no'
             }
         )
+    
+    def rerun(self, session_id, user_code, std_code):
+        request_stop_set.discard(session_id)
+
+        session = Session.query.get_or_404(session_id)
+        test_cases = session.test_cases
+
+        with TemporaryDirectory() as temp_dir:
+            temp_dir = Path(temp_dir)
+
+            for s, code in (('user', user_code), ('std', std_code)):
+                yield sse_response('status', {'status': f"Compiling {s} code"})
+
+                code_file = temp_dir / f'{s}_code'
+                exe_file = temp_dir / f'{s}_exe'
+                Path.write_text(code_file, code['content'])
+                Path.touch(exe_file)
+                type, data = run_compiler(code_file, exe_file, code['lang'], code['std'])
+
+                yield sse_response(type, data)
+                if type == 'failed':
+                    return
+
+            current_testcase = None
+            for i, current_testcase in enumerate(test_cases):
+                yield sse_response('status', {"status": f"Running test {i + 1}/{len(test_cases)}"})
+                user_exe_file = temp_dir / 'user_exe'
+                std_exe_file = temp_dir / 'std_exe'
+
+                user_result, user_output, _, _ = run_program(user_exe_file, input_data=current_testcase.input_data)
+                current_testcase.user_output = user_output
+                current_testcase.status = f"User {user_result['type']}"
+
+                std_result, std_output, _, _ = run_program(std_exe_file, input_data=current_testcase.input_data)
+                current_testcase.std_output = std_output
+                current_testcase.status = f"Std {std_result['type']}"
+
+                normalized_user_output = '\n'.join([s.rstrip() for s in user_output.split('\n')]).rstrip()
+                normalized_std_output = '\n'.join([s.rstrip() for s in std_output.split('\n')]).rstrip()
+                if normalized_user_output != normalized_std_output:
+                    current_testcase.status = 'WA'
+                else:
+                    current_testcase.status = 'OK'
+                
+                db.session.commit()
+                yield sse_response('test_result', {
+                    'test_num': i,
+                    'test_case': current_testcase.to_dict()
+                })
+
+                if session_id in request_stop_set:
+                    yield sse_response('finish', {})
+                    return
+
+            yield sse_response('finish', {})
+
 
 from flask import Blueprint
 diff_bp = Blueprint('diff', __name__)
-diff_bp.add_url_rule('/<int:session_id>/start', view_func=StartDiff.as_view('session_list'))
-diff_bp.add_url_rule('/<int:session_id>/stop', view_func=StopDiff.as_view('session_detail'))
-diff_bp.add_url_rule('/<int:session_id>/rerun', view_func=RerunDiff.as_view('session_detail'))
+diff_bp.add_url_rule('/<int:session_id>/start', view_func=StartDiff.as_view('start_diff'))
+diff_bp.add_url_rule('/<int:session_id>/stop', view_func=StopDiff.as_view('stop_diff'))
+diff_bp.add_url_rule('/<int:session_id>/rerun', view_func=RerunDiff.as_view('rerun_diff'))

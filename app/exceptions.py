@@ -1,5 +1,5 @@
-import logging
 from flask import jsonify, request
+import logging
 from werkzeug.exceptions import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,12 @@ class SandboxError(APIError):
         payload = {'details': details} if details else {}
         super().__init__(message, 500, payload)
 
+class DiffError(APIError):
+    """对拍错误"""
+    def __init__(self, message, details=None):
+        payload = {'details': details} if details else {}
+        super().__init__(message, 500, payload)
+
 def register_error_handlers(app):
     """注册全局错误处理器"""
     
@@ -64,6 +70,13 @@ def register_error_handlers(app):
     @app.errorhandler(HTTPException)
     def handle_http_exception(error):
         """处理 HTTP 异常"""
+        # 特别处理 422 Unprocessable Entity
+        if error.code == 422:
+            # 尝试获取验证错误详情
+            if hasattr(error, 'data') and 'messages' in error.data:
+                errors = error.data['messages']
+                return handle_api_error(ValidationError(errors, "Validation failed"))
+        
         response = {
             'error': True,
             'message': error.description,

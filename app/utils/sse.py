@@ -26,7 +26,7 @@ def sse_response(event_type, data, event_id=None):
     
     response.append(f'event: {event_type}')
     response.append(f'data: {json.dumps(data, ensure_ascii=False)}')
-    response.append('')  # 空行表示事件结束
+    response.append('\n')  # 空行表示事件结束
     
     return '\n'.join(response)
 
