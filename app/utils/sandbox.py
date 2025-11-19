@@ -36,6 +36,11 @@ def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], *args, **kwa
     ], *args, **kwargs)
 
 def run_compiler(code, out, lang, std):
+    config = app_config[os.getenv('FLASK_ENV', 'default')]
+    time_limit = 10
+    memory_limit = config.COMPILER_MEMORY_LIMIT * 1024 * 1024
+    output_limit = config.COMPILER_OUTPUT_LIMIT * 1024
+
     if lang.lower() == 'c':
         cmd = ['gcc', '-x', 'c', f'-std={std}', '-O2', 'code', '-o', 'out']
     elif lang.lower() == 'cpp':
@@ -43,7 +48,7 @@ def run_compiler(code, out, lang, std):
     else:
         raise SandboxError("Unknown language")
     
-    child = launch_sandbox(cmd, 10, 512 * 1024 * 1024, 16 * 1024 * 1024, extra_args=[
+    child = launch_sandbox(cmd, time_limit, memory_limit, output_limit, extra_args=[
         '--ro-bind', code, '/home/code',
         '--bind', out, '/home/out',
         '--bind', app_config[os.getenv('FLASK_ENV', 'default')].TESTLIB_PATH, '/home/testlib.h' 
@@ -63,7 +68,12 @@ def run_compiler(code, out, lang, std):
         return 'status', {'message': "Success", 'detail': stderr[:1024]}
 
 def run_program(filename, args = [], input_data = None):
-    child = launch_sandbox(['/exe', *args], 5, 256 * 1024 * 1024, 1024 * 1024, extra_args=[
+    config = app_config[os.getenv('FLASK_ENV', 'default')]
+    time_limit = config.PROG_TIME_LIMIT
+    memory_limit = config.PROG_MEMORY_LIMIT * 1024 * 1024
+    output_limit = config.PROG_OUTPUT_LIMIT * 1024
+
+    child = launch_sandbox(['/exe', *args], time_limit, memory_limit, output_limit, extra_args=[
         '--ro-bind', filename, '/exe'
     ], stdout=PIPE, stderr=PIPE, stdin=PIPE)
 

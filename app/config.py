@@ -29,11 +29,16 @@ class Config:
     SANDBOX_EXECUTABLE = os.getenv('SANDBOX_EXECUTABLE', 'bwrap')
     RLIMIT_WRAPPER_EXECUTABLE = os.getenv('RLIMIT_WRAPPER_EXECUTABLE', './tools/rlimit_wrapper')
     TESTLIB_PATH = os.getenv('TESTLIB_PATH', './tools/testlib.h')
-    MAX_EXEC_TIME = int(os.getenv('MAX_EXEC_TIME', '5'))  # 秒
-    MAX_MEMORY_MB = int(os.getenv('MAX_MEMORY_MB', '256'))
+    
+    PROG_TIME_LIMIT = int(os.getenv('PROG_TIME_LIMIT', '5'))  # 秒
+    PROG_MEMORY_LIMIT = int(os.getenv('PROG_MEMORY_LIMIT', '256')) # MB
+    PROG_OUTPUT_LIMIT = int(os.getenv('PROG_OUTPUT_LIMIT', '16')) # KB
+
+    COMPILER_TIME_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_TIME', '15'))  # 秒
+    COMPILER_MEMORY_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_MEM', '512')) # MB
+    COMPILER_OUTPUT_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_OUTPUT', '16384')) # KB
     
     # AI 配置
-    DEFAULT_AI_MODEL = os.getenv('DEFAULT_AI_MODEL', 'gpt-4o')
     AI_TIMEOUT = int(os.getenv('AI_TIMEOUT', '60'))  # 秒
 
 class DevelopmentConfig(Config):

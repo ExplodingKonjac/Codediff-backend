@@ -15,7 +15,6 @@ class AIClient:
     def __init__(self):
         self.config = app_config[os.getenv('FLASK_ENV', 'default')]
         self.timeout = self.config.AI_TIMEOUT
-        self.default_model = self.config.DEFAULT_AI_MODEL
     
     def _get_ai_config(self, user_config):
         """获取 AI 配置，优先使用用户配置"""
@@ -28,7 +27,7 @@ class AIClient:
         return {
             'api_key': api_key,
             'api_url': api_url,
-            'model': user_config.get('model', self.default_model)
+            'model': user_config.get('model', '')
         }
     
     def get_completion(self, api_key, api_url, ai_model, system_prompt, user_question):
@@ -38,7 +37,8 @@ class AIClient:
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_question}
-            ]
+            ],
+            timeout=self.timeout
         )
         content = completion.choices[0].message.content
         return '\n'.join(filter(lambda line: line.find('```') == -1, content.split('\n')))
