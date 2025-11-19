@@ -162,6 +162,10 @@ class UserProfile(Resource):
             user.username = data['username']
         
         if 'email' in data and data['email'] != user.email:
+            if 'password' not in data:
+                raise APIError('Current password is required', 400)
+            if not user.check_password(data['password']):
+                raise APIError('Current password is incorrect', 403)
             if User.query.filter_by(email=data['email']).first():
                 raise APIError('Email already exists', 409)
             user.email = data['email']
@@ -175,9 +179,11 @@ class UserProfile(Resource):
         if 'ai_model' in data:
             user.ai_model = data['ai_model']
         
-        if 'password' in data and 'new_password' in data:
+        if 'new_password' in data:
+            if 'password' not in data:
+                raise APIError('Current password is required', 400)
             if not user.check_password(data['password']):
-                raise APIError('Current password is incorrect', 401)
+                raise APIError('Current password is incorrect', 403)
             user.set_password(data['new_password'])
         
         db.session.commit()
