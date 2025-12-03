@@ -81,8 +81,8 @@ class TestCase(db.Model):
     input_data = db.Column(db.Text, nullable=False)
     user_output = db.Column(db.Text)
     std_output = db.Column(db.Text)
-    time_used = db.Column(db.Integer, nullable=True, default=None)
-    memory_used = db.Column(db.Integer, nullable=True, default=None)
+    time_used = db.Column(db.Float, nullable=True, default=None)
+    memory_used = db.Column(db.Float, nullable=True, default=None)
     created_at = db.Column(db.DateTime, default=_now_fn)
     
     def to_dict(self):

@@ -228,9 +228,13 @@ class RerunDiff(Resource):
                 user_exe_file = temp_dir / 'user_exe'
                 std_exe_file = temp_dir / 'std_exe'
 
-                user_result, user_output, _, _ = run_program(user_exe_file, input_data=current_testcase.input_data)
+                input_data = current_testcase.input_data
+
+                user_result, user_output, time_used, memory_used = run_program(user_exe_file, input_data=input_data)
                 current_testcase.user_output = user_output
                 current_testcase.status = f"User {user_result['type']}"
+                current_testcase.time_used = time_used
+                current_testcase.memory_used = memory_used
 
                 std_result, std_output, _, _ = run_program(std_exe_file, input_data=current_testcase.input_data)
                 current_testcase.std_output = std_output
@@ -242,7 +246,7 @@ class RerunDiff(Resource):
                     current_testcase.status = 'WA'
                 else:
                     current_testcase.status = 'OK'
-                
+
                 db.session.commit()
                 yield sse_response('test_result', {
                     'test_num': i,
