@@ -39,11 +39,11 @@ class StartDiff(Resource):
                 return {'error': 'forbidden', 'message': 'Not your session'}, 403
 
             # 获取参数
-            max_tests = request.args.get('max_tests', 100)
+            max_tests = int(request.args.get('max_tests', 100))
             stop_on_fail = request.args.get('stop_on_fail', True)
             
             # 验证参数
-            if not isinstance(max_tests, int) or max_tests < 1 or max_tests > 1000:
+            if max_tests < 1 or max_tests > 1000:
                 max_tests = 1000
             
             logger.info(f"Starting continuous diff for session {session_id} with max_tests={max_tests}, stop_on_fail={stop_on_fail}")
@@ -167,6 +167,7 @@ class StartDiff(Resource):
                 })
             yield sse_response('finish', {})
 
+
 class StopDiff(Resource):
     @jwt_required()
     def post(self, session_id):
@@ -175,6 +176,7 @@ class StopDiff(Resource):
         # 简化版：标记会话为停止状态
         request_stop_set.add(session_id)
         return {'stopped': True, 'session_id': session_id}, 200
+
 
 class RerunDiff(Resource):
     @jwt_required()

@@ -96,11 +96,10 @@ def run_compiler(code, out, lang, std):
     )
 
     res = get_result_from_exit_status(data.exit_status)
-    if res['type'] == 'RE':
-        if res['code'] == 1:
-            return 'failed', {'message': "Compile Error", 'detail': stderr[:1024]}
-        else:
-            return 'failed', {'message': f"Compiler {res['type']}", 'detail': ""}
+    if res['code'] == 1:
+        return 'failed', {'message': "Compile Error", 'detail': stderr[:1024]}
+    elif res['type'] == 'RE':
+        return 'failed', {'message': f"Compiler {res['type']}", 'detail': ""}
     else:
         return 'status', {'message': "Success", 'detail': stderr[:1024]}
 
@@ -121,7 +120,6 @@ def run_program(filename, args = [], input_data = None):
 
     time_ms = data.user_time_us / 1000
     memory_mb = data.memory_kb / 1024
-    print(memory_mb)
     result = get_result_from_exit_status(data.exit_status)
 
     return result, stdout, time_ms, memory_mb
