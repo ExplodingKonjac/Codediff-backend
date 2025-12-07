@@ -11,3 +11,8 @@ wheels/
 
 # flask
 instance
+
+tools/**/*
+!tools/Makefile
+!tools/**/
+!tools/**/*.*

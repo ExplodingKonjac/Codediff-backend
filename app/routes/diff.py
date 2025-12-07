@@ -90,6 +90,7 @@ class StartDiff(Resource):
                 Path.write_text(code_file, code['content'])
                 Path.touch(exe_file)
                 type, data = run_compiler(code_file, exe_file, code['lang'], code['std'])
+                data['message'] = f"{s} code: {data['message']}"
 
                 yield sse_response(type, data)
                 if type == 'failed':
@@ -219,6 +220,7 @@ class RerunDiff(Resource):
                 Path.write_text(code_file, code['content'])
                 Path.touch(exe_file)
                 type, data = run_compiler(code_file, exe_file, code['lang'], code['std'])
+                data['message'] = f"{s} code: {data['message']}"
 
                 yield sse_response(type, data)
                 if type == 'failed':

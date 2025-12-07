@@ -4,6 +4,8 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <sys/fcntl.h>
+#include <sys/syscall.h>
+#include <sys/poll.h>
 
 struct ChildData {
 	int exit_status;
@@ -40,6 +42,27 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 	} else {
+		int pidfd = syscall(SYS_pidfd_open, pid, 0);
+		if (pidfd == -1) {
+			perror("pidfd_open() failed");
+			return 1;
+		}
+
+		pollfd poll_fd = {
+			.fd = pidfd,
+			.events = POLLHUP | POLLIN,
+		};
+		int ret = poll(&poll_fd, 1, rlim_cpu * 1000 + 200);
+		if (ret == -1) {
+			perror("poll() failed");
+			return 1;
+		} else if (ret == 0) {
+			if (syscall(SYS_pidfd_send_signal, pidfd, SIGKILL, NULL, 0) == -1) {
+				perror("pidfd_send_signal() failed");
+				return 1;
+			}
+		}
+
 		rusage usage;
 		int status;
 		wait4(pid, &status, 0, &usage);

@@ -20,8 +20,10 @@ def get_result_from_exit_status(exit_status):
         return {'type': 'OK', 'code': os.WEXITSTATUS(exit_status)}
     elif os.WIFSIGNALED(exit_status):
         sig = os.WTERMSIG(exit_status)
-        if sig == signal.SIGKILL:
-            return {'type': 'TLE_or_MLE', 'code': sig}
+        if sig == signal.SIGXCPU:
+            return {'type': 'TLE', 'code': sig}
+        elif sig == signal.SIGKILL:
+            return {'type': 'KILLED', 'code': sig}
         elif sig == signal.SIGXFSZ:
             return {'type': 'OLE', 'code': sig}
         else:
