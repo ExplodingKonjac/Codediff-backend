@@ -8,6 +8,6 @@ bwrap --version
 sudo apt install build-essential
 g++ --version
 
-# compile rlimit_wrapper
+# compile tools
 cd ./tools
-g++ rlimit_wrapper.cpp -o rlimit_wrapper -O2
+make -j12

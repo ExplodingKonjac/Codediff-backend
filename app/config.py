@@ -28,6 +28,7 @@ class Config:
     # 沙箱配置
     SANDBOX_EXECUTABLE = os.getenv('SANDBOX_EXECUTABLE', 'bwrap')
     RLIMIT_WRAPPER_EXECUTABLE = os.getenv('RLIMIT_WRAPPER_EXECUTABLE', './tools/rlimit_wrapper')
+    CHECKER_EXECUTABLE_PREFIX = os.getenv('CHECKER_EXECUTABLE_PREFIX', './tools/checkers/')
     TESTLIB_PATH = os.getenv('TESTLIB_PATH', './tools/testlib.h')
     
     PROG_TIME_LIMIT = int(os.getenv('PROG_TIME_LIMIT', '5'))  # 秒
@@ -38,6 +39,10 @@ class Config:
     COMPILER_MEMORY_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_MEM', '512')) # MB
     COMPILER_OUTPUT_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_OUTPUT', '16384')) # KB
     
+    CHECKER_TIME_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_TIME', '2'))  # 秒
+    CHECKER_MEMORY_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_MEM', '256')) # MB
+    CHECKER_OUTPUT_LIMIT = int(os.getenv('MAX_COMPILER_EXEC_OUTPUT', '16')) # KB
+
     # AI 配置
     AI_TIMEOUT = int(os.getenv('AI_TIMEOUT', '60'))  # 秒
 
@@ -56,7 +61,7 @@ class ProductionConfig(Config):
     JWT_COOKIE_SECURE = True
     SESSION_COOKIE_SECURE = True
 
-config = {
+config: dict[str, type[Config]] = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
     'default': DevelopmentConfig

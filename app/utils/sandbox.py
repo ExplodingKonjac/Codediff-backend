@@ -1,6 +1,6 @@
 from app.exceptions import SandboxError
+from signal import Signals
 import os
-import signal
 import ctypes
 from pathlib import Path
 from app.config import config as app_config
@@ -20,18 +20,18 @@ def get_result_from_exit_status(exit_status):
         return {'type': 'OK', 'code': os.WEXITSTATUS(exit_status)}
     elif os.WIFSIGNALED(exit_status):
         sig = os.WTERMSIG(exit_status)
-        if sig == signal.SIGXCPU:
+        if sig == Signals.SIGXCPU:
             return {'type': 'TLE', 'code': sig}
-        elif sig == signal.SIGKILL:
+        elif sig == Signals.SIGKILL:
             return {'type': 'KILLED', 'code': sig}
-        elif sig == signal.SIGXFSZ:
+        elif sig == Signals.SIGXFSZ:
             return {'type': 'OLE', 'code': sig}
         else:
             return {'type': 'RE', 'code': sig}
     else:
         return {'type': 'UKE', 'code': exit_status}
 
-def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data = None):
+def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data = None) -> tuple[ChildData, str, str]:
     config = app_config[os.getenv('FLASK_ENV', 'default')]
 
     pipe_rd_fd, pipe_wr_fd = os.pipe()
@@ -74,7 +74,7 @@ def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data =
 
 def run_compiler(code, out, lang, std):
     config = app_config[os.getenv('FLASK_ENV', 'default')]
-    time_limit = 10
+    time_limit = config.COMPILER_TIME_LIMIT
     memory_limit = config.COMPILER_MEMORY_LIMIT * 1024 * 1024
     output_limit = config.COMPILER_OUTPUT_LIMIT * 1024
 
@@ -100,12 +100,28 @@ def run_compiler(code, out, lang, std):
     res = get_result_from_exit_status(data.exit_status)
     if res['code'] == 1:
         return 'failed', {'message': "Compile Error", 'detail': stderr[:1024]}
-    elif res['type'] == 'RE':
+    elif res['type'] != 'OK':
         return 'failed', {'message': f"Compiler {res['type']}", 'detail': ""}
     else:
         return 'status', {'message': "Success", 'detail': stderr[:1024]}
 
-def run_program(filename, args = [], input_data = None):
+def run_checker(checker, input_file, output_file, answer_file):
+    child = Popen([checker, input_file, output_file, answer_file], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = child.communicate()
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode()
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode()
+
+    res = get_result_from_exit_status(child.returncode)
+    if res['code'] == 1:
+        return {'status': 'WA', 'detail': stderr}
+    elif res['type'] != 'OK':
+        return {'status': f'Checker {res['type']}', 'detail': stderr}
+    else:
+        return {'status': 'OK', 'detail': stderr}
+
+def run_program(filename, args = [], input_data = None) -> tuple[dict, str, str, float, float]:
     config = app_config[os.getenv('FLASK_ENV', 'default')]
     time_limit = config.PROG_TIME_LIMIT
     memory_limit = config.PROG_MEMORY_LIMIT * 1024 * 1024
@@ -124,4 +140,4 @@ def run_program(filename, args = [], input_data = None):
     memory_mb = data.memory_kb / 1024
     result = get_result_from_exit_status(data.exit_status)
 
-    return result, stdout, time_ms, memory_mb
+    return result, stdout, stderr, time_ms, memory_mb

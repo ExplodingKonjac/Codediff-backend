@@ -78,12 +78,13 @@ class TestCase(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.Integer, db.ForeignKey('sessions.id'), nullable=False)
     status = db.Column(db.String(32), default='PENDING')  # AC, WA, TLE, MLE, RE
-    input_data = db.Column(db.Text, nullable=False)
-    user_output = db.Column(db.Text)
-    std_output = db.Column(db.Text)
+    input_data = db.Column(db.Text, nullable=True, default=None)
+    user_output = db.Column(db.Text, nullable=True, default=None)
+    std_output = db.Column(db.Text, nullable=True, default=None)
+    detail = db.Column(db.Text, nullable=True, default=None)
     time_used = db.Column(db.Float, nullable=True, default=None)
     memory_used = db.Column(db.Float, nullable=True, default=None)
-    created_at = db.Column(db.DateTime, default=_now_fn)
+    created_at = db.Column(db.DateTime, nullable=False, default=_now_fn)
     
     def to_dict(self):
         return {
@@ -92,6 +93,7 @@ class TestCase(db.Model):
             'input': self.input_data,
             'output': self.user_output,
             'answer': self.std_output,
+            'detail': self.detail,
             'time_used': self.time_used,
             'memory_used': self.memory_used,
             'created_at': self.created_at.isoformat()
