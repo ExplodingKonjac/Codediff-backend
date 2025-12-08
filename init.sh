@@ -10,4 +10,4 @@ g++ --version
 
 # compile tools
 cd ./tools
-make -j12
+make -j$(nproc)

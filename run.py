@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 from app import create_app
-from app.exceptions import register_error_handlers
 
 # 配置日志
 logging.basicConfig(
@@ -27,17 +26,6 @@ if __name__ == '__main__':
     host = os.getenv('FLASK_RUN_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_RUN_PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'true').lower() == 'true'
-    
-    # 检查 Firejail
-    try:
-        import shutil
-        if shutil.which('firejail'):
-            logger.info('Firejail detected - sandbox mode enabled')
-        else:
-            logger.warning('Firejail not found - running in UNSAFE mode')
-            logger.warning('Install firejail: sudo apt-get install firejail')
-    except Exception as e:
-        logger.error(f'Firejail check failed: {str(e)}')
     
     # 启动应用
     logger.info(f'Starting CodeDiff backend in {os.getenv("FLASK_ENV")} mode')
