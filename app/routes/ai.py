@@ -1,14 +1,17 @@
 from flask import request, stream_with_context, Response
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from pix2text import Pix2Text
+from tempfile import NamedTemporaryFile
 from app.models import Session
 from app.utils.ai_client import AIClient
 from app.utils.sse import sse_response
-from app.extensions import db
+from app.exceptions import APIError, AuthorizationError
 import logging
 
 logger = logging.getLogger(__name__)
 ai_client = AIClient()
+ocr_model = Pix2Text()
 
 class GenerateCode(Resource):
     @jwt_required()
@@ -17,7 +20,7 @@ class GenerateCode(Resource):
         data = request.get_json()
 
         if not data or 'type' not in data or 'session_id' not in data:
-            return {'error': 'invalid_request', 'message': 'Missing required fields'}, 400
+            raise APIError("Missing required fields")
 
         gen_type = data['type']  # 'generator' or 'standard'
         session_id = data['session_id']
@@ -25,7 +28,7 @@ class GenerateCode(Resource):
         # 获取会话
         session = Session.query.get_or_404(session_id)
         if session.user_id != current_user:
-            return {'error': 'forbidden', 'message': 'Not your session'}, 403
+            raise AuthorizationError("Not your session")
 
         # 获取用户AI配置
         user = session.user
@@ -48,8 +51,7 @@ class GenerateCode(Resource):
             elif gen_type == 'standard':
                 result = ai_client.generate_standard(**ai_config)
             else:
-                return {'error': 'invalid_type', 'message': 'Invalid generation type'}, 400
-            print(f"result: {result}")
+                raise APIError("Invalid generation type")
 
             return {'generated_code': result, 'lang': 'cpp', 'std': 'c++20'}, 200
 
@@ -67,7 +69,7 @@ class StreamGenerateCode(Resource):
         current_user = int(get_jwt_identity())
 
         if not request.args or 'type' not in request.args or 'session_id' not in request.args:
-            return {'error': 'invalid_request', 'message': 'Missing required fields'}, 400
+            raise APIError("Missing required fields")
 
         gen_type = request.args['type']
         session_id = int(request.args['session_id'])
@@ -75,12 +77,12 @@ class StreamGenerateCode(Resource):
         # 获取会话
         session = Session.query.get_or_404(session_id)
         if session.user_id != current_user:
-            return {'error': 'forbidden', 'message': 'Not your session'}, 403
+            raise AuthorizationError("Not your session")
 
         # 获取用户AI配置
         user = session.user
         if not user or not user.ai_api_key or not user.ai_api_url:
-            return {'error': 'ai_config_missing', 'message': 'AI configuration is not set up'}, 400
+            raise APIError("AI configuration is not set up")
 
         ai_config = {
             'api_key': user.ai_api_key,
@@ -100,7 +102,7 @@ class StreamGenerateCode(Resource):
         elif gen_type == 'standard':
             generator_func = ai_client.generate_standard_stream
         else:
-            return {'error': 'invalid_type', 'message': 'Invalid generation type'}, 400
+            raise APIError("Invalid generation type")
 
         # 生成 SSE 流
         def generate_events():
@@ -130,8 +132,30 @@ class StreamGenerateCode(Resource):
         )
 
 
+class OCRProcessor(Resource):
+    @jwt_required()
+    def post(self):
+        file = request.files.get('image')
+        if not file or not file.filename:
+            raise APIError("No image file provided", 400)
+        
+        # 验证文件类型
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'webp'}
+        if not file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+            raise APIError("Invalid file type. Only image files are allowed", 400)
+        
+        # 验证文件大小 (最大 5MB)
+        if file.content_length > 5 * 1024 * 1024:
+            raise APIError("File too large. Maximum size is 5MB", 400)
+
+        with NamedTemporaryFile('wb+', delete=True) as image_file:
+            file.save(image_file)
+            image_file.flush()
+            return {'text': ocr_model.recognize_text_formula(image_file.name)}, 200
+
 # 蓝图注册
 from flask import Blueprint
 ai_bp = Blueprint('ai', __name__)
 ai_bp.add_url_rule('/generate', view_func=GenerateCode.as_view('generate_code'))
 ai_bp.add_url_rule('/stream-generate', view_func=StreamGenerateCode.as_view('stream_generate_code'))
+ai_bp.add_url_rule('/ocr', view_func=OCRProcessor.as_view('ocr_processor'))
