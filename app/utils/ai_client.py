@@ -1,55 +1,85 @@
-import requests
-import json
-import logging
-import time
-import os
 from openai import OpenAI
-
+from anthropic import Anthropic
+from base64 import b64encode
 from app.config import config as app_config
+from app.exceptions import APIError
+import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-class AIClient:
+class CodeGenerationClient:
     GENERATOR_SYSTEM_PROMPT = """
-任务描述：作为专业的程序设计竞赛助手，你的职责是为用户编写一个测试数据生成器。请遵循以下要求来完成此任务：
+## Task: Competitive Programming Data Generator
 
-- 使用的语言和库：C++17 和 testlib.h。
-- 数据输入格式：首先尝试从题目描述中获取数据输入的具体格式。如果题目描述未提供足够的信息，则需根据用户的代码逻辑推断出合适的输入格式。
-- 数据格式**严格遵守**题目描述，不要自己更改格式。
-- 生成的数据必须严格遵守题目的所有约束条件。
-- 尽量控制生成的数据规模，使其适合于用户进行轻松调试；同时尽可能覆盖各种边界情况以确保全面性。
-- 不允许使用命令行参数传递任何配置选项。对于需要调整的参数，请直接在代码内部定义，并推荐使用 `constexpr` 类型变量以便于用户后续修改。
+You are a specialized AI assistant whose sole task is to generate **C++ test data generators** for competitive programming problems.
 
-最终输出仅限于完整的生成器代码本身，不应包含任何形式的额外内容（如代码解释、Markdown标记等）。
+Your output must be **raw, executable C++ code** using the `testlib.h` library.
 
-**重要：使用 C++17 标准。不要生成任何 Markdown 代码标记（```cpp ... ```）。**
+## User Input Specification
+
+The user will provide the problem details in two distinct, mandatory sections:
+
+1.  **PROBLEM DESCRIPTION:** The full text of the problem statement, outlining the task and logic.
+2.  **CONSTRAINTS:** A list of all numerical and logical constraints (e.g., $N \le 10^5$, $1 \le A[i] \le 10^9$, Graph must be connected).
+
+## Generation Requirements and Rules
+
+1. Technical Specification
+    - **Language & Library:** Use **C++17** and the competitive programming header **`testlib.h`**.
+    - **Setup:** The code must include the necessary headers (`<iostream>`, `testlib.h`) and a `main` function with a call to `registerGen(argc, argv, 1);`.
+    - **Output:** All generated data must be written to standard output (using `cout` or $testlib$'s `printf`/`printL` functions).
+    - **Argument Control:** **DO NOT** use command line arguments for configuration. Use **`constexpr`** variables to set and adjust all numerical parameters (e.g., maximum size, value ranges).
+
+2. Data Quality & Constraints
+    - **Format:** The generated data must strictly adhere to the exact input format described in the Problem Description.
+    - **Validity:** The data must satisfy **ALL** specified constraints.
+    - **Debugging Size:** To ensure easy debugging, the total generated output size (e.g., number of elements $N$, or total lines of input) should be kept relatively small, typically **between 5 and 50** lines/elements.
+
+3. Edge Case Coverage (Critical)
+    - The generator must intelligently cover critical edge cases related to the problem logic and constraints. Prioritize:
+    - **Boundary Cases:** Minimum constraint values (e.g., $N=1$) and maximum constraint values (e.g., $N=50$ or whatever is set by the `constexpr` maximum).
+    - **Uniformity:** Cases where all elements are identical (e.g., $A[i] = 1$ for all $i$).
+    - **Diversity:** Cases where all elements are maximally diverse (distinct, or covering the full range of $1$ to $10^9$).
+    - **Ordering:** Strictly sorted or strictly reverse-sorted inputs (if order matters).
+    - **Problem-Specific Edges:** Zeroes, negative numbers (if allowed), large prime numbers, or structures like linear chains/stars in graphs.
+
+## Final Output
+
+**Produce raw C++ code only.** Do not include any extra explanatory text, comments outside of the code block, or Markdown notations (e.g., **DO NOT** use ```cpp ... ```).
 """
     GENERATOR_USER_PROMPT = """
-## 题目描述如下：
-
-{}
-
-## 用户代码如下：
+Write the data generator for the following problem:
 
 {}
 """
     STANDARD_SYSTEM_PROMPT = """
-请作为一个专业的程序设计竞赛助手，根据用户需求生成一段 C++17 代码。这段代码主要用于在数据规模较小时提供正确的解题方案（即，暴力解法）而不必考虑其在大规模数据集上的效率问题。**但是代码的正确性必须保证。**同时，请确保代码能够妥善处理各种边界情况，如数组越界、整型溢出以及避免陷入死循环等。
+**Role:** You are a C++17 Reference Implementation Generator. Your purpose is to generate logically perfect, naive brute-force solutions for competitive programming problems. These solutions are used as "Reference Code" for stress testing (checking against optimized solutions).
 
-- 你需要从题目描述中提取输入输出的具体格式要求；如果题目描述中未明确指出，则应尝试从用户提供的现有代码样例中推断。
-- 严格遵循题目的输入输出规范进行编码，确保不产生任何额外的输出信息（例如提示性文字）。
-- 最终只需提交生成的代码本身，无需附加其他任何形式的内容或说明，也不要输出 Markdown 标记。
+**Input:** A competitive programming problem description.
+**Output:** Raw C++17 source code.
 
-请基于上述指导原则编写满足条件的代码。
+---
 
-**重要：使用 C++17 标准。不要生成任何 Markdown 代码标记（```cpp ... ```）。必须使用最朴素的暴力解法（如搜索、穷举等等），正确性是第一要务。**
+### **Critical Rules**
+
+1.  **Complexity Assumption (The "Naive" Rule):**
+    - **Parameters Affecting Complexity (e.g., $N, M, K$):** Assume these are small (e.g., $N \le 20$) and will not cause a Time Limit Exceeded error, even for exponential solutions (e.g., $O(2^N)$ or $O(N!)$).
+    - Implement the most direct, mathematically obvious solution. **Do not optimize.** Use methods like: complete enumeration, DFS/BFS for state-space search, or direct simulation.
+
+2.  **Value Range Safety (The "Correctness" Rule):**
+    - **Parameters Affecting Value (e.g., $A_i, V$):** Treat the magnitude and range of these parameters **very seriously**. Do not assume they are small.
+    - **Data Types:** Use `long long` (`int64_t`) by default for *all* integer arithmetic (inputs, variables, intermediate results, and outputs) to prevent overflow, unless the problem guarantees all values fit in a 32-bit `int`. Use `double` or `long double` for floating-point values as appropriate.
+    - **Logical Correctness is paramount.** The code must produce the exact right answer for valid inputs, handling large values and negative values correctly.
+    - Handle all edge cases (e.g., $N=0$, empty arrays) as defined by the problem.
+
+3.  **Formatting & IO:**
+    - Use standard C++ I/O (`std::cin`, `std::cout`).
+    - **NO Markdown:** Do not use code blocks (like ```cpp ... ```). Do not write introductory or concluding text.
+    - **Output ONLY the code.** The output must start with the first preprocessor directive (`#include`, `using namespace`, etc.) and end with the closing brace `}` of the `main` function.
 """
     STANDARD_USER_PROMPT = """
-## 题目描述如下:
-
-{}
-
-## 用户代码如下:
+Generate the brute-force C++17 solution for the following problem:
 
 {}
 """
@@ -59,8 +89,8 @@ class AIClient:
 
     def _get_ai_config(self, user_config):
         """获取 AI 配置，优先使用用户配置"""
-        api_key = user_config.get('api_key') or self.config.get('AI_API_KEY')
-        api_url = user_config.get('api_url') or self.config.get('AI_API_URL')
+        api_key = user_config.get('api_key')
+        api_url = user_config.get('api_url')
 
         if not api_key or not api_url:
             raise ValueError('AI API configuration is missing')
@@ -109,41 +139,70 @@ class AIClient:
             yield 'error', str(e)
 
     def generate_generator(self, context, api_key, api_url, ai_model):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
+
         return self.get_completion(
             api_key, api_url, ai_model,
             self.GENERATOR_SYSTEM_PROMPT,
-            self.GENERATOR_USER_PROMPT.format(
-                context.get('description', 'No description provided'),
-                context.get('user_code', 'No user code provided')
-            )
+            self.GENERATOR_USER_PROMPT.format(context['description'])
         )
 
     def generate_standard(self, context, api_key, api_url, ai_model):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
+
         return self.get_completion(
             api_key, api_url, ai_model,
             self.STANDARD_SYSTEM_PROMPT,
-            self.STANDARD_USER_PROMPT.format(
-                context.get('description', 'No description provided'),
-                context.get('user_code', 'No user code provided')
-            )
+            self.STANDARD_USER_PROMPT.format(context['description']),
         )
 
     def generate_generator_stream(self, context, api_key, api_url, ai_model):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
+
         return self.stream_completion(
             api_key, api_url, ai_model,
             self.GENERATOR_SYSTEM_PROMPT,
-            self.GENERATOR_USER_PROMPT.format(
-                context.get('description', 'No description provided'),
-                context.get('user_code', 'No user code provided')
-            )
+            self.GENERATOR_USER_PROMPT.format(context['description']),
         )
 
     def generate_standard_stream(self, context, api_key, api_url, ai_model):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
+
         return self.stream_completion(
             api_key, api_url, ai_model,
             self.STANDARD_SYSTEM_PROMPT,
-            self.STANDARD_USER_PROMPT.format(
-                context.get('description', 'No description provided'),
-                context.get('user_code', 'No user code provided')
-            )
+            self.STANDARD_USER_PROMPT.format(context['description'])
         )
+
+class OCRClient:
+    PROMPT = """
+The image given to you contains description of a programming problem, in Chinese or English. You should output the ORIGINAL content in markdown format. DON'T change the expressions. DON'T change the language. Ouput markdown format text ONLY.
+"""
+    def __init__(self) -> None:
+        self._client = Anthropic()
+    
+    def perform_ocr(self, image_path: str | os.PathLike):
+        with open(image_path, 'rb') as f:
+            image_base64 = b64encode(f.read()).decode('ascii')
+
+        user_content = [
+            {
+                'type': 'image',
+                'source': {
+                    'type': 'base64',
+                    'media_type': 'image/png',
+                    'data': image_base64
+                }
+            },
+            {'type': 'text', 'text': self.PROMPT}
+        ]
+        message = self._client.messages.create(
+            max_tokens=2048,
+            messages=[{'role': 'user', 'content': user_content}],
+            model='claude-haiku-4-5',
+        )
+        return '\n'.join(i.text for i in message.content if i.type == 'text')

@@ -1,17 +1,18 @@
 from flask import request, stream_with_context, Response
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from pix2text import Pix2Text
+# from pix2text import Pix2Text
 from tempfile import NamedTemporaryFile
 from app.models import Session
-from app.utils.ai_client import AIClient
+from app.utils.ai_client import CodeGenerationClient, OCRClient
 from app.utils.sse import sse_response
 from app.exceptions import APIError, AuthorizationError
 import logging
 
 logger = logging.getLogger(__name__)
-ai_client = AIClient()
-ocr_model = Pix2Text()
+code_generation_client = CodeGenerationClient()
+ocr_client = OCRClient()
+# ocr_model = Pix2Text()
 
 class GenerateCode(Resource):
     @jwt_required()
@@ -47,9 +48,9 @@ class GenerateCode(Resource):
         try:
             # 调用AI生成
             if gen_type == 'generator':
-                result = ai_client.generate_generator(**ai_config)
+                result = code_generation_client.generate_generator(**ai_config)
             elif gen_type == 'standard':
-                result = ai_client.generate_standard(**ai_config)
+                result = code_generation_client.generate_standard(**ai_config)
             else:
                 raise APIError("Invalid generation type")
 
@@ -98,9 +99,9 @@ class StreamGenerateCode(Resource):
 
         # 确定生成函数
         if gen_type == 'generator':
-            generator_func = ai_client.generate_generator_stream
+            generator_func = code_generation_client.generate_generator_stream
         elif gen_type == 'standard':
-            generator_func = ai_client.generate_standard_stream
+            generator_func = code_generation_client.generate_standard_stream
         else:
             raise APIError("Invalid generation type")
 
@@ -151,7 +152,7 @@ class OCRProcessor(Resource):
         with NamedTemporaryFile('wb+', delete=True) as image_file:
             file.save(image_file)
             image_file.flush()
-            return {'text': ocr_model.recognize_text_formula(image_file.name)}, 200
+            return {'text': ocr_client.perform_ocr(image_file.name)}, 200
 
 # 蓝图注册
 from flask import Blueprint
