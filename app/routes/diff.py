@@ -2,6 +2,7 @@ from flask import request, Response, stream_with_context
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app.extensions import db
+from app.exceptions import AuthenticationError, AuthorizationError
 from app.config import config as app_config
 from app.models import Session, TestCase
 from app.utils.sandbox import run_compiler, run_program, run_checker
@@ -87,60 +88,52 @@ def judge(testcase: TestCase,
 class StartDiff(Resource):
     @jwt_required()
     def get(self, session_id):
-        try:
-            # 获取当前用户
-            current_user = get_jwt_identity()
-            if not current_user or not isinstance(current_user, str):
-                logger.warning("Invalid JWT identity")
-                return {'error': 'Invalid token'}, 401
-            
-            user_id = int(current_user)
-            if not user_id:
-                logger.warning("Missing user ID in token")
-                return {'error': 'Invalid token'}, 401
-            
-            # 获取会话
-            session = Session.query.get_or_404(session_id)
-            
-            # 验证权限
-            if session.user_id != user_id:
-                logger.warning(f"User {user_id} attempted to access session {session_id} owned by {session.user_id}")
-                return {'error': 'forbidden', 'message': 'Not your session'}, 403
+        def generator():
+            try:
+                # 获取当前用户
+                current_user = get_jwt_identity()
+                if not current_user or not isinstance(current_user, str):
+                    raise AuthenticationError("Invalid JWT identity")
+                
+                user_id = int(current_user)
+                if not user_id:
+                    raise AuthenticationError("Missing user ID in token")
+                
+                # 获取会话
+                session = Session.query.get_or_404(session_id)
+                
+                # 验证权限
+                if session.user_id != user_id:
+                    raise AuthorizationError("Not your session")
 
-            # 获取参数
-            max_tests = int(request.args.get('max_tests', 100))
-            checker = str(request.args.get('checker', 'wcmp'))
+                # 获取参数
+                max_tests = int(request.args.get('max_tests', 100))
+                checker = str(request.args.get('checker', 'wcmp'))
+                max_tests = max(min(max_tests, 1000), 1)
+                
+                # 保存原始代码
+                user_code = session.user_code.copy() if session.user_code else {}
+                std_code = session.std_code.copy() if session.std_code else {}
+                gen_code = session.gen_code.copy() if session.gen_code else None
+                
+                yield from self.diff(session_id, user_code, std_code, gen_code, max_tests, checker)
             
-            # 验证参数
-            if max_tests < 1 or max_tests > 1000:
-                max_tests = 1000
-            
-            logger.info(f"Starting continuous diff for session {session_id} with max_tests={max_tests}, checker={checker}")
-            
-            # 保存原始代码
-            user_code = session.user_code.copy() if session.user_code else {}
-            std_code = session.std_code.copy() if session.std_code else {}
-            gen_code = session.gen_code.copy() if session.gen_code else None
-            
-            # 生成 SSE 响应
-            return Response(
-                stream_with_context(self.diff(
-                    session_id, user_code, std_code, gen_code, max_tests, checker
-                )),
-                mimetype='text/event-stream',
-                headers={
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'X-Accel-Buffering': 'no',  # 禁用 Nginx 缓冲
-                    'Access-Control-Allow-Origin': request.headers.get('Origin', '*'),
-                    'Access-Control-Allow-Credentials': 'true'
-                }
-            )
-        
-        except Exception as e:
-            logger.exception(f"Error in StartDiff: {str(e)}")
-            return {'error': 'Internal server error', 'message': str(e)}, 500
-    
+            except Exception as e:
+                yield sse_response('error', {'message': str(e)})
+
+        # 生成 SSE 响应
+        return Response(
+            stream_with_context(generator()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',  # 禁用 Nginx 缓冲
+                'Access-Control-Allow-Origin': request.headers.get('Origin', '*'),
+                'Access-Control-Allow-Credentials': 'true'
+            }
+        )
+
     def diff(self, session_id, user_code, std_code, gen_code, max_tests, checker):
         request_stop_set.discard(session_id)
 
@@ -209,20 +202,27 @@ class RerunDiff(Resource):
     @jwt_required()
     def get(self, session_id):
         """重新测试现有数据 (SSE 流)"""
-        current_user = int(get_jwt_identity())
-        session = Session.query.get_or_404(session_id)
-        
-        if session.user_id != int(current_user):
-            return {'error': 'forbidden', 'message': 'Not your session'}, 403
-        
-        checker = str(request.args.get('checker', 'wcmp'))
+        def generator():
+            try:
+                current_user = int(get_jwt_identity())
+                session = Session.query.get_or_404(session_id)
+                
+                if session.user_id != int(current_user):
+                    raise AuthorizationError("Not your session")
+                
+                checker = str(request.args.get('checker', 'wcmp'))
 
-        # 保存原始代码
-        user_code = session.user_code.copy()
-        std_code = session.std_code.copy()
-        
+                # 保存原始代码
+                user_code = session.user_code.copy()
+                std_code = session.std_code.copy()
+
+                yield from self.rerun(session_id, user_code, std_code, checker)
+            
+            except Exception as e:
+                yield sse_response('error', {'message': str(e)})
+
         return Response(
-            stream_with_context(self.rerun(session_id, user_code, std_code, checker)),
+            stream_with_context(generator()),
             mimetype='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',

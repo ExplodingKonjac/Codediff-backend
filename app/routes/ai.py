@@ -46,69 +46,61 @@ class GenerateCode(Resource):
             }
         }
 
-        try:
-            # 调用AI生成
-            if gen_type == 'generator':
-                result = code_generation_client.generate_generator(**ai_config)
-            elif gen_type == 'standard':
-                result = code_generation_client.generate_standard(**ai_config)
-            else:
-                raise APIError("Invalid generation type")
+        # 调用AI生成
+        if gen_type == 'generator':
+            result = code_generation_client.generate_generator(**ai_config)
+        elif gen_type == 'standard':
+            result = code_generation_client.generate_standard(**ai_config)
+        else:
+            raise APIError("Invalid generation type")
 
-            return {'generated_code': result, 'lang': 'cpp', 'std': 'c++20'}, 200
-
-        except Exception as e:
-            return {
-                'error': 'ai_generation_failed',
-                'message': str(e),
-                'details': 'AI service might be unavailable or misconfigured'
-            }, 503
+        return {'generated_code': result, 'lang': 'cpp', 'std': 'c++20'}, 200
 
 
 class StreamGenerateCode(Resource):
     @jwt_required()
     def get(self):
-        current_user = int(get_jwt_identity())
-
-        if not request.args or 'type' not in request.args or 'session_id' not in request.args:
-            raise APIError("Missing required fields")
-
-        gen_type = request.args['type']
-        session_id = int(request.args['session_id'])
-
-        # 获取会话
-        session = Session.query.get_or_404(session_id)
-        if session.user_id != current_user:
-            raise AuthorizationError("Not your session")
-
-        # 获取用户AI配置
-        user = session.user
-        if not user or not user.ai_api_key or not user.ai_api_url:
-            raise APIError("AI configuration is not set up")
-
-        ai_config = {
-            'api_key': user.ai_api_key,
-            'api_url': user.ai_api_url,
-            'ai_model': user.ai_model,
-            'context': {
-                'title': session.title,
-                'description': session.description,
-                'user_code': session.user_code.get('content') if session.user_code else None,
-                'std_code': session.std_code.get('content') if session.std_code else None
-            }
-        }
-
-        # 确定生成函数
-        if gen_type == 'generator':
-            generator_func = code_generation_client.generate_generator_stream
-        elif gen_type == 'standard':
-            generator_func = code_generation_client.generate_standard_stream
-        else:
-            raise APIError("Invalid generation type")
-
         # 生成 SSE 流
         def generate_events():
             try:
+                current_user = int(get_jwt_identity())
+
+                if not request.args or 'type' not in request.args or 'session_id' not in request.args:
+                    raise APIError("Missing required fields")
+
+                gen_type = request.args['type']
+                session_id = int(request.args['session_id'])
+
+                # 获取会话
+                session = Session.query.get_or_404(session_id)
+                if session.user_id != current_user:
+                    raise AuthorizationError("Not your session")
+
+                # 获取用户AI配置
+                user = session.user
+                if not user or not user.ai_api_key or not user.ai_api_url:
+                    raise APIError("AI configuration is not set up")
+
+                ai_config = {
+                    'api_key': user.ai_api_key,
+                    'api_url': user.ai_api_url,
+                    'ai_model': user.ai_model,
+                    'context': {
+                        'title': session.title,
+                        'description': session.description,
+                        'user_code': session.user_code.get('content') if session.user_code else None,
+                        'std_code': session.std_code.get('content') if session.std_code else None
+                    }
+                }
+
+                # 确定生成函数
+                if gen_type == 'generator':
+                    generator_func = code_generation_client.generate_generator_stream
+                elif gen_type == 'standard':
+                    generator_func = code_generation_client.generate_standard_stream
+                else:
+                    raise APIError("Invalid generation type")
+
                 for event, data in generator_func(**ai_config):
                     if event == 'code_chunk':
                         yield sse_response(event, {'content': data})

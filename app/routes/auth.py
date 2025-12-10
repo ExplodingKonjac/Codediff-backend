@@ -30,6 +30,9 @@ class Register(Resource):
         if User.query.filter_by(email=data['email']).first():
             raise APIError('Email already exists', 409)
         
+        if not data['password']:
+            raise APIError('Password is required', 400)
+        
         # 创建新用户
         user = User(
             username=data['username'],
