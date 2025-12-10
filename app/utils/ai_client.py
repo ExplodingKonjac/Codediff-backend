@@ -194,7 +194,7 @@ The image given to you contains description of a programming problem, in Chinese
                 'type': 'image',
                 'source': {
                     'type': 'base64',
-                    'media_type': 'image/png',
+                    'media_type': 'image/jpeg',
                     'data': image_base64
                 }
             },

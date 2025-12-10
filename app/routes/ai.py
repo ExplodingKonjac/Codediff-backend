@@ -3,6 +3,7 @@ from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 # from pix2text import Pix2Text
 from tempfile import NamedTemporaryFile
+from PIL import Image
 from app.models import Session
 from app.utils.ai_client import CodeGenerationClient, OCRClient
 from app.utils.sse import sse_response
@@ -150,7 +151,7 @@ class OCRProcessor(Resource):
             raise APIError("File too large. Maximum size is 5MB", 400)
 
         with NamedTemporaryFile('wb+', delete=True) as image_file:
-            file.save(image_file)
+            Image.open(file).save(image_file, format='JPEG')
             image_file.flush()
             return {'text': ocr_client.perform_ocr(image_file.name)}, 200
 
