@@ -1,3 +1,67 @@
 2025-12-08 21:50:55,303 - app - INFO - Starting application in development mode
 2025-12-08 21:50:55,347 - app - INFO - Starting application in development mode
 2025-12-08 21:50:55,404 - app - INFO - Starting application in development mode
+2025-12-12 11:14:03,453 - app - INFO - Starting application in development mode
+2025-12-12 11:14:03,459 - __main__ - INFO - Starting CodeDiff backend in development mode
+2025-12-12 11:14:03,459 - __main__ - INFO - Listening on 0.0.0.0:5000
+2025-12-12 11:14:03,466 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://198.18.0.1:5000
+2025-12-12 11:14:03,466 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-12-12 11:14:03,466 - werkzeug - INFO -  * Restarting with stat
+2025-12-12 11:14:03,987 - app - INFO - Starting application in development mode
+2025-12-12 11:14:03,999 - __main__ - INFO - Starting CodeDiff backend in development mode
+2025-12-12 11:14:03,999 - __main__ - INFO - Listening on 0.0.0.0:5000
+2025-12-12 11:14:04,004 - werkzeug - WARNING -  * Debugger is active!
+2025-12-12 11:14:04,010 - werkzeug - INFO -  * Debugger PIN: 895-820-465
+2025-12-12 11:14:26,911 - app.exceptions - INFO - Response [unknown] 200 /api/auth/me
+2025-12-12 11:14:26,911 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:26] "OPTIONS /api/auth/me HTTP/1.1" 200 -
+2025-12-12 11:14:26,916 - app.exceptions - INFO - Request [35e46f7d-5dd7-45a6-90dd-4edadc08c9fb] GET /api/auth/me
+2025-12-12 11:14:26,916 - app.exceptions - INFO - Response [35e46f7d-5dd7-45a6-90dd-4edadc08c9fb] 401 /api/auth/me
+2025-12-12 11:14:26,916 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:26] "[31m[1mGET /api/auth/me HTTP/1.1[0m" 401 -
+2025-12-12 11:14:27,082 - app.exceptions - INFO - Response [unknown] 200 /api/sessions
+2025-12-12 11:14:27,083 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:27] "OPTIONS /api/sessions?page=1&per_page=10&sort=updated_at&order=desc HTTP/1.1" 200 -
+2025-12-12 11:14:27,101 - app.exceptions - INFO - Response [unknown] 200 /api/sessions/
+2025-12-12 11:14:27,101 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:27] "OPTIONS /api/sessions/?page=1&per_page=10&sort=updated_at&order=desc HTTP/1.1" 200 -
+2025-12-12 11:14:27,104 - app.exceptions - INFO - Request [f2ce5eba-85a6-4676-83f1-c979ddc83fb1] GET /api/sessions/
+2025-12-12 11:14:27,105 - app.exceptions - INFO - Response [f2ce5eba-85a6-4676-83f1-c979ddc83fb1] 401 /api/sessions/
+2025-12-12 11:14:27,105 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:27] "[31m[1mGET /api/sessions/?page=1&per_page=10&sort=updated_at&order=desc HTTP/1.1[0m" 401 -
+2025-12-12 11:14:57,458 - app.exceptions - INFO - Response [unknown] 200 /api/auth/login
+2025-12-12 11:14:57,458 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:57] "OPTIONS /api/auth/login HTTP/1.1" 200 -
+2025-12-12 11:14:57,463 - app.exceptions - INFO - Request [e30afd3f-2e1e-4555-9fc3-a604ce434e0d] POST /api/auth/login
+2025-12-12 11:14:57,553 - app.exceptions - INFO - Response [e30afd3f-2e1e-4555-9fc3-a604ce434e0d] 200 /api/auth/login
+2025-12-12 11:14:57,553 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:57] "POST /api/auth/login HTTP/1.1" 200 -
+2025-12-12 11:14:57,638 - app.exceptions - INFO - Request [1e1f9387-d85e-4cf1-bf1f-dba14c3f0ca7] GET /api/sessions/
+2025-12-12 11:14:57,647 - app.exceptions - INFO - Response [1e1f9387-d85e-4cf1-bf1f-dba14c3f0ca7] 200 /api/sessions/
+2025-12-12 11:14:57,648 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:57] "GET /api/sessions/?page=1&per_page=10&sort=updated_at&order=desc HTTP/1.1" 200 -
+2025-12-12 11:14:59,749 - app.exceptions - INFO - Response [unknown] 200 /api/sessions/1
+2025-12-12 11:14:59,749 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:59] "OPTIONS /api/sessions/1 HTTP/1.1" 200 -
+2025-12-12 11:14:59,754 - app.exceptions - INFO - Request [a2c753d7-767e-498b-a210-72d0ae214ef1] GET /api/sessions/1
+2025-12-12 11:14:59,756 - app.exceptions - INFO - Response [a2c753d7-767e-498b-a210-72d0ae214ef1] 200 /api/sessions/1
+2025-12-12 11:14:59,757 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:14:59] "GET /api/sessions/1 HTTP/1.1" 200 -
+2025-12-12 11:15:08,655 - app.exceptions - INFO - Response [unknown] 200 /api/ai/stream-generate
+2025-12-12 11:15:08,656 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:08] "OPTIONS /api/ai/stream-generate?type=generator&session_id=1 HTTP/1.1" 200 -
+2025-12-12 11:15:08,660 - app.exceptions - INFO - Request [c6bc20a5-76c2-4bd1-8a7d-50549ef0c78e] GET /api/ai/stream-generate
+2025-12-12 11:15:08,660 - app.exceptions - INFO - Response [c6bc20a5-76c2-4bd1-8a7d-50549ef0c78e] 200 /api/ai/stream-generate
+2025-12-12 11:15:16,425 - httpx - INFO - HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-12 11:15:16,433 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:16] "GET /api/ai/stream-generate?type=generator&session_id=1 HTTP/1.1" 200 -
+2025-12-12 11:15:24,076 - app.exceptions - INFO - Response [unknown] 200 /api/ai/stream-generate
+2025-12-12 11:15:24,076 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:24] "OPTIONS /api/ai/stream-generate?type=standard&session_id=1 HTTP/1.1" 200 -
+2025-12-12 11:15:24,079 - app.exceptions - INFO - Request [5bb4f5ec-1d34-45f3-b527-3a8b7e6bf311] GET /api/ai/stream-generate
+2025-12-12 11:15:24,080 - app.exceptions - INFO - Response [5bb4f5ec-1d34-45f3-b527-3a8b7e6bf311] 200 /api/ai/stream-generate
+2025-12-12 11:15:24,446 - httpx - INFO - HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-12 11:15:24,447 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:24] "GET /api/ai/stream-generate?type=standard&session_id=1 HTTP/1.1" 200 -
+2025-12-12 11:15:31,739 - app.exceptions - INFO - Request [07fe584b-8c7d-4336-b956-251bfd60ba41] PUT /api/sessions/1
+2025-12-12 11:15:31,749 - app.exceptions - INFO - Response [07fe584b-8c7d-4336-b956-251bfd60ba41] 200 /api/sessions/1
+2025-12-12 11:15:31,750 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:31] "PUT /api/sessions/1 HTTP/1.1" 200 -
+2025-12-12 11:15:31,762 - app.exceptions - INFO - Response [unknown] 200 /api/diff/1/start
+2025-12-12 11:15:31,763 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:31] "OPTIONS /api/diff/1/start?max_tests=100&checker=wcmp HTTP/1.1" 200 -
+2025-12-12 11:15:31,767 - app.exceptions - INFO - Request [f966bc02-3965-42cc-9d37-3c7c5a81d525] GET /api/diff/1/start
+2025-12-12 11:15:31,767 - app.exceptions - INFO - Response [f966bc02-3965-42cc-9d37-3c7c5a81d525] 200 /api/diff/1/start
+2025-12-12 11:15:31,771 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:31] "GET /api/diff/1/start?max_tests=100&checker=wcmp HTTP/1.1" 200 -
+2025-12-12 11:15:31,788 - app.exceptions - INFO - Response [unknown] 200 /api/diff/1/stop
+2025-12-12 11:15:31,788 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:31] "OPTIONS /api/diff/1/stop HTTP/1.1" 200 -
+2025-12-12 11:15:31,793 - app.exceptions - INFO - Request [2978e359-9f8a-49ad-8630-2ea01874d7a7] POST /api/diff/1/stop
+2025-12-12 11:15:31,793 - app.exceptions - INFO - Response [2978e359-9f8a-49ad-8630-2ea01874d7a7] 200 /api/diff/1/stop
+2025-12-12 11:15:31,793 - werkzeug - INFO - 127.0.0.1 - - [12/Dec/2025 11:15:31] "POST /api/diff/1/stop HTTP/1.1" 200 -

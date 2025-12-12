@@ -1,4 +1,4 @@
-from flask import request, stream_with_context, Response
+from flask import request, stream_with_context, Response, current_app
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 # from pix2text import Pix2Text
@@ -34,10 +34,24 @@ class GenerateCode(Resource):
 
         # 获取用户AI配置
         user = session.user
+        
+        # Atomic fallback: if ANY user config is missing, use system config for ALL
+        if user.ai_api_key and user.ai_api_url and user.ai_model:
+            api_key = user.ai_api_key
+            api_url = user.ai_api_url
+            ai_model = user.ai_model
+        else:
+            api_key = current_app.config['SYSTEM_AI_API_KEY']
+            api_url = current_app.config['SYSTEM_AI_API_URL']
+            ai_model = current_app.config['SYSTEM_AI_MODEL']
+
+        if not api_key or not api_url:
+            raise APIError("AI configuration is missing (neither user nor system config found)")
+
         ai_config = {
-            'api_key': user.ai_api_key,
-            'api_url': user.ai_api_url,
-            'ai_model': user.ai_model,
+            'api_key': api_key,
+            'api_url': api_url,
+            'ai_model': ai_model,
             'context': {
                 'title': session.title,
                 'description': session.description,
@@ -78,13 +92,24 @@ class StreamGenerateCode(Resource):
 
                 # 获取用户AI配置
                 user = session.user
-                if not user or not user.ai_api_key or not user.ai_api_url:
-                    raise APIError("AI configuration is not set up")
+                
+                # Atomic fallback: if ANY user config is missing, use system config for ALL
+                if user.ai_api_key and user.ai_api_url and user.ai_model:
+                    api_key = user.ai_api_key
+                    api_url = user.ai_api_url
+                    ai_model = user.ai_model
+                else:
+                    api_key = current_app.config['SYSTEM_AI_API_KEY']
+                    api_url = current_app.config['SYSTEM_AI_API_URL']
+                    ai_model = current_app.config['SYSTEM_AI_MODEL']
+
+                if not api_key or not api_url:
+                    raise APIError("AI configuration is missing (neither user nor system config found)")
 
                 ai_config = {
-                    'api_key': user.ai_api_key,
-                    'api_url': user.ai_api_url,
-                    'ai_model': user.ai_model,
+                    'api_key': api_key,
+                    'api_url': api_url,
+                    'ai_model': ai_model,
                     'context': {
                         'title': session.title,
                         'description': session.description,

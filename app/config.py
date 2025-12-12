@@ -45,6 +45,10 @@ class Config:
 
     # AI 配置
     AI_TIMEOUT = int(os.getenv('AI_TIMEOUT', '60'))  # 秒
+    
+    SYSTEM_AI_API_KEY = os.getenv('SYSTEM_AI_API_KEY')
+    SYSTEM_AI_API_URL = os.getenv('SYSTEM_AI_API_URL')
+    SYSTEM_AI_MODEL = os.getenv('SYSTEM_AI_MODEL')
 
 class DevelopmentConfig(Config):
     DEBUG = True

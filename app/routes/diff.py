@@ -3,7 +3,7 @@ from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app.extensions import db
 from app.exceptions import AuthenticationError, AuthorizationError
-from app.config import config as app_config
+from flask import current_app
 from app.models import Session, TestCase
 from app.utils.sandbox import run_compiler, run_program, run_checker
 from app.utils.sse import sse_response
@@ -141,8 +141,7 @@ class StartDiff(Resource):
         TestCase.query.filter_by(session_id=session_id).delete()
         db.session.commit()
 
-        config = app_config[os.getenv('FLASK_ENV', 'default')]
-        checker_exe_file = Path(config.CHECKER_EXECUTABLE_PREFIX) / checker
+        checker_exe_file = Path(current_app.config['CHECKER_EXECUTABLE_PREFIX']) / checker
 
         with TemporaryDirectory() as temp_dir:
             temp_dir = Path(temp_dir)
@@ -237,8 +236,7 @@ class RerunDiff(Resource):
         session = Session.query.get_or_404(session_id)
         test_cases = session.test_cases
 
-        config = app_config[os.getenv('FLASK_ENV', 'default')]
-        checker_exe_file = Path(config.CHECKER_EXECUTABLE_PREFIX) / checker
+        checker_exe_file = Path(current_app.config['CHECKER_EXECUTABLE_PREFIX']) / checker
 
         with TemporaryDirectory() as temp_dir:
             temp_dir = Path(temp_dir)

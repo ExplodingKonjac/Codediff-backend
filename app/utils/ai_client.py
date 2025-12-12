@@ -1,7 +1,7 @@
 from openai import OpenAI
 from anthropic import Anthropic
 from base64 import b64encode
-from app.config import config as app_config
+from flask import current_app
 from app.exceptions import APIError
 import logging
 import os
@@ -64,7 +64,7 @@ Write the data generator for the following problem:
 ### **Critical Rules**
 
 1.  **Complexity Assumption (The "Naive" Rule):**
-    - **Parameters Affecting Complexity (e.g., $N, M, K$):** Assume these are small (e.g., $N \le 20$) and will not cause a Time Limit Exceeded error, even for exponential solutions (e.g., $O(2^N)$ or $O(N!)$).
+    - **Parameters Affecting Complexity (e.g., $N, M, K$):** Assume these are small (e.g., $N \le 20$) and will not cause a Time Limit Exceeded error, even for exponential solutions (e.g., $O(2^N)$ or $O(N!)$). In other words, if you find out that a brute-force solution seems impossible under the given data range, just ignore the data range and assume it is acceptable.
     - Implement the most direct, mathematically obvious solution. **Do not optimize.** Use methods like: complete enumeration, DFS/BFS for state-space search, or direct simulation.
 
 2.  **Value Range Safety (The "Correctness" Rule):**
@@ -85,7 +85,7 @@ Generate the brute-force C++17 solution for the following problem:
 """
 
     def __init__(self):
-        self.config = app_config[os.getenv('FLASK_ENV', 'default')]
+        pass
 
     def _get_ai_config(self, user_config):
         """获取 AI 配置，优先使用用户配置"""
@@ -109,7 +109,7 @@ Generate the brute-force C++17 solution for the following problem:
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_question}
             ],
-            timeout=self.config.AI_TIMEOUT
+            timeout=current_app.config['AI_TIMEOUT']
         )
         content = completion.choices[0].message.content
         return '\n'.join(filter(lambda line: line.find('```') == -1, content.split('\n')))
@@ -125,7 +125,7 @@ Generate the brute-force C++17 solution for the following problem:
                     {'role': 'user', 'content': user_question}
                 ],
                 stream=True,
-                timeout=self.config.AI_TIMEOUT
+                timeout=current_app.config['AI_TIMEOUT']
             )
 
             for chunk in stream:

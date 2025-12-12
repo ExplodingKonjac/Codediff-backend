@@ -3,7 +3,7 @@ from signal import Signals
 import os
 import ctypes
 from pathlib import Path
-from app.config import config as app_config
+from flask import current_app
 from subprocess import Popen, PIPE
 from multiprocessing import Pipe
 
@@ -32,14 +32,12 @@ def get_result_from_exit_status(exit_status):
         return {'type': 'UKE', 'code': exit_status}
 
 def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data = None) -> tuple[ChildData, str, str]:
-    config = app_config[os.getenv('FLASK_ENV', 'default')]
-
     pipe_rd_fd, pipe_wr_fd = os.pipe()
     with os.fdopen(pipe_wr_fd, 'wb') as pipe_wr, os.fdopen(pipe_rd_fd, 'rb') as pipe_rd:
         child = Popen(
             [
-                config.SANDBOX_EXECUTABLE,
-                '--ro-bind', config.RLIMIT_WRAPPER_EXECUTABLE, '/wrapper',
+                current_app.config['SANDBOX_EXECUTABLE'],
+                '--ro-bind', current_app.config['RLIMIT_WRAPPER_EXECUTABLE'], '/wrapper',
                 '--ro-bind', '/usr', '/usr',
                 '--symlink', 'usr/lib', '/lib',
                 '--symlink', 'usr/lib64', '/lib64',
@@ -68,15 +66,20 @@ def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data =
             stdout = stdout.decode()
 
         data_buf = pipe_rd.read(ctypes.sizeof(ChildData))
-        data = ChildData.from_buffer_copy(data_buf)
+        try:
+            data = ChildData.from_buffer_copy(data_buf)
+        except ValueError as e:
+            current_app.logger.error(f"Sandbox execution failed. stderr: {stderr}")
+            current_app.logger.error(f"Sandbox stdout: {stdout}")
+            current_app.logger.error(f"Data buffer size: {len(data_buf)}")
+            raise SandboxError(f"Sandbox failed to return valid data: {e}. Stderr: {stderr}")
 
     return data, stdout, stderr
 
 def run_compiler(code, out, lang, std):
-    config = app_config[os.getenv('FLASK_ENV', 'default')]
-    time_limit = config.COMPILER_TIME_LIMIT
-    memory_limit = config.COMPILER_MEMORY_LIMIT * 1024 * 1024
-    output_limit = config.COMPILER_OUTPUT_LIMIT * 1024
+    time_limit = current_app.config['COMPILER_TIME_LIMIT']
+    memory_limit = current_app.config['COMPILER_MEMORY_LIMIT'] * 1024 * 1024
+    output_limit = current_app.config['COMPILER_OUTPUT_LIMIT'] * 1024
 
     if lang.lower() == 'c':
         cmd = ['gcc', '-x', 'c', f'-std={std}', '-O2', 'code', '-o', 'out']
@@ -93,7 +96,7 @@ def run_compiler(code, out, lang, std):
         extra_args=[
             '--ro-bind', code, '/home/code',
             '--bind', out, '/home/out',
-            '--bind', app_config[os.getenv('FLASK_ENV', 'default')].TESTLIB_PATH, '/home/testlib.h' 
+            '--bind', current_app.config['TESTLIB_PATH'], '/home/testlib.h' 
         ]
     )
 
@@ -122,10 +125,9 @@ def run_checker(checker, input_file, output_file, answer_file):
         return {'status': 'OK', 'detail': stderr}
 
 def run_program(filename, args = [], input_data = None) -> tuple[dict, str, str, float, float]:
-    config = app_config[os.getenv('FLASK_ENV', 'default')]
-    time_limit = config.PROG_TIME_LIMIT
-    memory_limit = config.PROG_MEMORY_LIMIT * 1024 * 1024
-    output_limit = config.PROG_OUTPUT_LIMIT * 1024
+    time_limit = current_app.config['PROG_TIME_LIMIT']
+    memory_limit = current_app.config['PROG_MEMORY_LIMIT'] * 1024 * 1024
+    output_limit = current_app.config['PROG_OUTPUT_LIMIT'] * 1024
 
     data, stdout, stderr = launch_sandbox(
         ['/exe', *args],

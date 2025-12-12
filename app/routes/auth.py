@@ -9,7 +9,6 @@ from flask_jwt_extended import (
 from app.models import User
 from app.extensions import db
 from app.exceptions import APIError
-from werkzeug.security import check_password_hash
 
 class Register(Resource):
     def options(self):
