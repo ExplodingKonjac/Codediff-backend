@@ -23,6 +23,10 @@ def create_app(config_name='default'):
     # 初始化扩展
     init_extensions(app)
     
+    # 注册 CLI 命令
+    from app.commands import register_commands
+    register_commands(app)
+    
     # 注册蓝图
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(sessions_bp, url_prefix='/api/sessions')

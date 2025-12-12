@@ -50,6 +50,13 @@ class Config:
     SYSTEM_AI_API_URL = os.getenv('SYSTEM_AI_API_URL')
     SYSTEM_AI_MODEL = os.getenv('SYSTEM_AI_MODEL')
 
+    # 邮件配置
+    MAIL_SERVER = os.getenv('MAIL_SERVER', 'localhost')
+    MAIL_PORT = int(os.getenv('MAIL_PORT', '8025'))
+    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'false').lower() == 'true'
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+
 class DevelopmentConfig(Config):
     DEBUG = True
     PROPAGATE_EXCEPTIONS = True

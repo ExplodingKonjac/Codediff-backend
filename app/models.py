@@ -98,3 +98,21 @@ class TestCase(db.Model):
             'memory_used': self.memory_used,
             'created_at': self.created_at.isoformat()
         }
+
+class VerificationCode(db.Model):
+    __tablename__ = 'verification_codes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), index=True, nullable=False)
+    code = db.Column(db.String(6), nullable=False)
+    created_at = db.Column(db.DateTime, default=_now_fn)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False)
+    
+    def is_valid(self):
+        # Ensure expires_at is timezone-aware (UTC) to match datetime.now(timezone.utc)
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+        return not self.used and expires_at > datetime.now(timezone.utc)

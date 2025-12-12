@@ -6,9 +6,41 @@ from flask_jwt_extended import (
     set_access_cookies, set_refresh_cookies,
     unset_jwt_cookies
 )
-from app.models import User
+from app.models import User, VerificationCode
 from app.extensions import db
 from app.exceptions import APIError
+from app.utils.email_sender import send_verification_email
+import random
+from datetime import datetime, timedelta, timezone
+
+class SendVerificationCode(Resource):
+    def post(self):
+        """发送验证码"""
+        data = request.get_json()
+        if not data or 'email' not in data:
+            raise APIError('Email is required', 400)
+            
+        email = data['email']
+        
+        # 检查邮箱是否已被注册
+        if User.query.filter_by(email=email).first():
+            raise APIError('Email already registered', 409)
+            
+        # 生成6位验证码
+        code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        
+        # 保存到数据库
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        ver_code = VerificationCode(email=email, code=code, expires_at=expires_at)
+        db.session.add(ver_code)
+        db.session.commit()
+        
+        # 发送邮件
+        if send_verification_email(email, code):
+            return {'message': 'Verification code sent'}, 200
+        else:
+            raise APIError('Failed to send verification email', 500)
+
 
 class Register(Resource):
     def options(self):
@@ -19,8 +51,19 @@ class Register(Resource):
         """用户注册"""
         data = request.get_json()
         
-        if not data or not all(k in data for k in ('username', 'email', 'password')):
+        required_fields = ('username', 'email', 'password', 'verification_code')
+        if not data or not all(k in data for k in required_fields):
             raise APIError('Missing required fields', 400)
+        
+        # 验证验证码
+        ver_code = VerificationCode.query.filter_by(
+            email=data['email'], 
+            code=data['verification_code'],
+            used=False
+        ).order_by(VerificationCode.created_at.desc()).first()
+        
+        if not ver_code or not ver_code.is_valid():
+            raise APIError('Invalid or expired verification code', 400)
         
         # 检查用户名/邮箱是否已存在
         if User.query.filter_by(username=data['username']).first():
@@ -29,8 +72,8 @@ class Register(Resource):
         if User.query.filter_by(email=data['email']).first():
             raise APIError('Email already exists', 409)
         
-        if not data['password']:
-            raise APIError('Password is required', 400)
+        # 标记验证码为已使用
+        ver_code.used = True
         
         # 创建新用户
         user = User(
@@ -194,6 +237,7 @@ class UserProfile(Resource):
 # 蓝图注册
 from flask import Blueprint
 auth_bp = Blueprint('auth', __name__)
+auth_bp.add_url_rule('/send-code', view_func=SendVerificationCode.as_view('send_code'))
 auth_bp.add_url_rule('/register', view_func=Register.as_view('register'))
 auth_bp.add_url_rule('/login', view_func=Login.as_view('login'))
 auth_bp.add_url_rule('/logout', view_func=Logout.as_view('logout'))
