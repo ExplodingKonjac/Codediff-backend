@@ -18,3 +18,4 @@ tools/**/*
 !tools/**/*.*
 
 .env
+*.log
