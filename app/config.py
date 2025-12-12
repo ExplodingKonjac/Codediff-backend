@@ -9,9 +9,6 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     
     ENV = os.getenv('FLASK_ENV', 'development')
-    
-    # 重要：设置 JWT 身份类型为字符串
-    JWT_IDENTITY_CLAIM = 'sub'  # JWT 标准中的 subject 声明
 
     # 数据库配置
     SQLALCHEMY_DATABASE_URI = os.getenv(
@@ -19,11 +16,6 @@ class Config:
         'sqlite:///' + os.path.join(os.path.dirname(__file__), 'app.db')
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
-    # JWT 配置
-    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key')
-    JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1小时
-    JWT_REFRESH_TOKEN_EXPIRES = 2592000  # 30天
     
     # 沙箱配置
     SANDBOX_EXECUTABLE = os.getenv('SANDBOX_EXECUTABLE', 'bwrap')
@@ -60,6 +52,9 @@ class Config:
 class DevelopmentConfig(Config):
     DEBUG = True
     PROPAGATE_EXCEPTIONS = True
+    SESSION_COOKIE_SECURE = False
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
 
 class ProductionConfig(Config):
     DEBUG = False
@@ -69,7 +64,7 @@ class ProductionConfig(Config):
         'pool_recycle': 3600,
         'pool_pre_ping': True
     }
-    JWT_COOKIE_SECURE = True
+
     SESSION_COOKIE_SECURE = True
 
 config: dict[str, type[Config]] = {

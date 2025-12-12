@@ -1,6 +1,6 @@
 from flask import request, Response, stream_with_context
 from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_login import login_required, current_user
 from app.extensions import db
 from app.exceptions import AuthenticationError, AuthorizationError
 from flask import current_app
@@ -86,18 +86,15 @@ def judge(testcase: TestCase,
 
 
 class StartDiff(Resource):
-    @jwt_required()
+    @login_required
     def get(self, session_id):
         def generator():
             try:
                 # 获取当前用户
-                current_user = get_jwt_identity()
-                if not current_user or not isinstance(current_user, str):
-                    raise AuthenticationError("Invalid JWT identity")
+                if not current_user.is_authenticated:
+                    raise AuthenticationError("User not authenticated")
                 
-                user_id = int(current_user)
-                if not user_id:
-                    raise AuthenticationError("Missing user ID in token")
+                user_id = current_user.id
                 
                 # 获取会话
                 session = Session.query.get_or_404(session_id)
@@ -188,7 +185,7 @@ class StartDiff(Resource):
 
 
 class StopDiff(Resource):
-    @jwt_required()
+    @login_required
     def post(self, session_id):
         """停止当前对拍"""
         # 实际实现需要维护执行进程映射
@@ -198,15 +195,15 @@ class StopDiff(Resource):
 
 
 class RerunDiff(Resource):
-    @jwt_required()
+    @login_required
     def get(self, session_id):
         """重新测试现有数据 (SSE 流)"""
         def generator():
             try:
-                current_user = int(get_jwt_identity())
+                user_id = current_user.id
                 session = Session.query.get_or_404(session_id)
                 
-                if session.user_id != int(current_user):
+                if session.user_id != user_id:
                     raise AuthorizationError("Not your session")
                 
                 checker = str(request.args.get('checker', 'wcmp'))

@@ -23,6 +23,14 @@ def create_app(config_name='default'):
     # 初始化扩展
     init_extensions(app)
     
+    # Flask-Login User Loader
+    from app.extensions import login_manager
+    from app.models import User
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+    
     # 注册 CLI 命令
     from app.commands import register_commands
     register_commands(app)
@@ -57,22 +65,5 @@ def create_app(config_name='default'):
                 'X-XSRF-TOKEN'
             ]
         }), 200
-    
-    # CORS 预检请求处理
-    @app.after_request
-    def after_request(response):
-        """统一处理响应头"""
-        origin = request.headers.get('Origin')
-        if origin:
-            # 允许所有来源或配置的来源
-            allowed_origins = app.config.get('CORS_ORIGINS', '*')
-            if allowed_origins == '*' or origin in allowed_origins:
-                response.headers['Access-Control-Allow-Origin'] = origin
-                response.headers['Access-Control-Allow-Credentials'] = 'true'
-        
-        # 暴露必要的头部
-        response.headers['Access-Control-Expose-Headers'] = 'Content-Type,Authorization,X-Requested-With'
-        
-        return response
-    
+
     return app

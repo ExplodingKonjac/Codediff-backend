@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager
+from flask_login import LoginManager
 from flask_cors import CORS
 from flask_marshmallow import Marshmallow
 import os
@@ -9,14 +9,14 @@ from flask import request, make_response
 # 初始化扩展
 db = SQLAlchemy()
 migrate = Migrate()
-jwt = JWTManager()
+login_manager = LoginManager()
 ma = Marshmallow()
 
 def init_extensions(app):
     """初始化所有 Flask 扩展"""
     db.init_app(app)
     migrate.init_app(app, db)
-    jwt.init_app(app)
+    login_manager.init_app(app)
     ma.init_app(app)
     
     # ========== 完整的 CORS 配置 ==========
@@ -38,16 +38,3 @@ def init_extensions(app):
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
          allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "X-CSRF-Token"],
          max_age=86400)
-    
-    # ========== 手动处理 OPTIONS 请求 ==========
-    @app.before_request
-    def handle_preflight():
-        if request.method == "OPTIONS":
-            response = app.make_response("")
-            # 设置必要的 CORS 头
-            response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,X-CSRF-Token')
-            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-            response.headers.add('Access-Control-Max-Age', '86400')
-            return response

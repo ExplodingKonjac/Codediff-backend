@@ -1,6 +1,6 @@
 from flask import request, stream_with_context, Response, current_app
 from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_login import login_required, current_user
 # from pix2text import Pix2Text
 from tempfile import NamedTemporaryFile
 from PIL import Image
@@ -16,9 +16,9 @@ ocr_client = OCRClient()
 # ocr_model = Pix2Text()
 
 class GenerateCode(Resource):
-    @jwt_required()
+    @login_required
     def post(self):
-        current_user = int(get_jwt_identity())
+        user_id = current_user.id
         data = request.get_json()
 
         if not data or 'type' not in data or 'session_id' not in data:
@@ -29,7 +29,7 @@ class GenerateCode(Resource):
 
         # 获取会话
         session = Session.query.get_or_404(session_id)
-        if session.user_id != current_user:
+        if session.user_id != user_id:
             raise AuthorizationError("Not your session")
 
         # 获取用户AI配置
@@ -72,12 +72,12 @@ class GenerateCode(Resource):
 
 
 class StreamGenerateCode(Resource):
-    @jwt_required()
+    @login_required
     def get(self):
         # 生成 SSE 流
         def generate_events():
             try:
-                current_user = int(get_jwt_identity())
+                user_id = current_user.id
 
                 if not request.args or 'type' not in request.args or 'session_id' not in request.args:
                     raise APIError("Missing required fields")
@@ -87,7 +87,7 @@ class StreamGenerateCode(Resource):
 
                 # 获取会话
                 session = Session.query.get_or_404(session_id)
-                if session.user_id != current_user:
+                if session.user_id != user_id:
                     raise AuthorizationError("Not your session")
 
                 # 获取用户AI配置
@@ -152,7 +152,7 @@ class StreamGenerateCode(Resource):
 
 
 class OCRProcessor(Resource):
-    @jwt_required()
+    @login_required
     def post(self):
         file = request.files.get('image')
         if not file or not file.filename:
