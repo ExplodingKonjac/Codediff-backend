@@ -50,6 +50,7 @@ class Session(db.Model):
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=_now_fn)
     updated_at = db.Column(db.DateTime, default=_now_fn, onupdate=_now_fn)
+    stop_requested = db.Column(db.Boolean, default=False)
     
     # 代码内容 (存储为 JSON)
     user_code = db.Column(db.JSON, nullable=False, default=lambda: {'lang': 'cpp', 'std': 'c++17', 'content': ''})

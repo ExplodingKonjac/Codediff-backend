@@ -11,21 +11,38 @@ from app.exceptions import APIError, AuthorizationError
 import logging
 
 logger = logging.getLogger(__name__)
-code_generation_client = CodeGenerationClient()
-ocr_client = OCRClient()
-# ocr_model = Pix2Text()
 
-class GenerateCode(Resource):
+
+class StreamGenerateCode(Resource):
     @login_required
-    def post(self):
-        user_id = current_user.id
-        data = request.get_json()
+    def get(self):
+        def generate_events():
+            try:
+                yield from self.generate()
+            except Exception as e:
+                logger.error(f'Streaming generation failed: {str(e)}')
+                yield sse_response('error', {'message': str(e)})
 
-        if not data or 'type' not in data or 'session_id' not in data:
+        return Response(
+            stream_with_context(generate_events()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',  # 禁用 Nginx 缓冲
+                'Access-Control-Allow-Origin': request.headers.get('Origin', '*'),
+                'Access-Control-Allow-Credentials': 'true'
+            }
+        )
+    
+    def generate(self):
+        user_id = current_user.id
+
+        if not request.args or 'type' not in request.args or 'session_id' not in request.args:
             raise APIError("Missing required fields")
 
-        gen_type = data['type']  # 'generator' or 'standard'
-        session_id = data['session_id']
+        gen_type = request.args['type']
+        session_id = int(request.args['session_id'])
 
         # 获取会话
         session = Session.query.get_or_404(session_id)
@@ -47,95 +64,62 @@ class GenerateCode(Resource):
 
         if not api_key or not api_url:
             raise APIError("AI configuration is missing (neither user nor system config found)")
-
-        ai_config = {
-            'api_key': api_key,
-            'api_url': api_url,
-            'ai_model': ai_model,
-            'context': {
-                'title': session.title,
-                'description': session.description,
-                'user_code': session.user_code.get('content') if session.user_code else None,
-                'std_code': session.std_code.get('content') if session.std_code else None
-            }
+        
+        code_generation_client = CodeGenerationClient(api_key, api_url, ai_model)
+        context = {
+            'title': session.title,
+            'description': session.description,
+            'user_code': session.user_code.get('content') if session.user_code else None,
+            'std_code': session.std_code.get('content') if session.std_code else None
         }
 
-        # 调用AI生成
+        # 确定生成函数
         if gen_type == 'generator':
-            result = code_generation_client.generate_generator(**ai_config)
+            generator_func = code_generation_client.generate_generator_stream
         elif gen_type == 'standard':
-            result = code_generation_client.generate_standard(**ai_config)
+            generator_func = code_generation_client.generate_standard_stream
         else:
             raise APIError("Invalid generation type")
 
-        return {'generated_code': result, 'lang': 'cpp', 'std': 'c++20'}, 200
+        for data in generator_func(context):
+            yield sse_response('chunk', {'content': data})
+        yield sse_response('finish', {})
 
 
-class StreamGenerateCode(Resource):
+class StreamOCR(Resource):
     @login_required
-    def get(self):
-        # 生成 SSE 流
+    def post(self):
         def generate_events():
             try:
-                user_id = current_user.id
-
-                if not request.args or 'type' not in request.args or 'session_id' not in request.args:
-                    raise APIError("Missing required fields")
-
-                gen_type = request.args['type']
-                session_id = int(request.args['session_id'])
-
-                # 获取会话
-                session = Session.query.get_or_404(session_id)
-                if session.user_id != user_id:
-                    raise AuthorizationError("Not your session")
-
-                # 获取用户AI配置
-                user = session.user
+                file = request.files.get('image')
+                if not file or not file.filename:
+                    raise APIError("No image file provided", 400)
                 
-                # Atomic fallback: if ANY user config is missing, use system config for ALL
-                if user.ai_api_key and user.ai_api_url and user.ai_model:
-                    api_key = user.ai_api_key
-                    api_url = user.ai_api_url
-                    ai_model = user.ai_model
-                else:
-                    api_key = current_app.config['SYSTEM_AI_API_KEY']
-                    api_url = current_app.config['SYSTEM_AI_API_URL']
-                    ai_model = current_app.config['SYSTEM_AI_MODEL']
+                # 验证文件类型
+                allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'webp'}
+                if not file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+                    raise APIError("Invalid file type. Only image files are allowed", 400)
+                
+                # 验证文件大小 (最大 5MB)
+                if file.content_length > 5 * 1024 * 1024:
+                    raise APIError("File too large. Maximum size is 5MB", 400)
+                
+                api_key = current_app.config['SYSTEM_OCR_API_KEY']
+                api_url = current_app.config['SYSTEM_OCR_API_URL']
+                ai_model = current_app.config['SYSTEM_OCR_API_MODEL']
 
-                if not api_key or not api_url:
-                    raise APIError("AI configuration is missing (neither user nor system config found)")
+                ocr_client = OCRClient(api_key, api_url, ai_model)
+                
+                # Put PIL Image in memory to safely stream response
+                img = Image.open(file)
+                img.load() # Ensure image is loaded
 
-                ai_config = {
-                    'api_key': api_key,
-                    'api_url': api_url,
-                    'ai_model': ai_model,
-                    'context': {
-                        'title': session.title,
-                        'description': session.description,
-                        'user_code': session.user_code.get('content') if session.user_code else None,
-                        'std_code': session.std_code.get('content') if session.std_code else None
-                    }
-                }
-
-                # 确定生成函数
-                if gen_type == 'generator':
-                    generator_func = code_generation_client.generate_generator_stream
-                elif gen_type == 'standard':
-                    generator_func = code_generation_client.generate_standard_stream
-                else:
-                    raise APIError("Invalid generation type")
-
-                for event, data in generator_func(**ai_config):
-                    if event == 'code_chunk':
-                        yield sse_response(event, {'content': data})
-                    elif event == 'error':
-                        yield sse_response(event, {'message': data})
-                    elif event == 'finish':
-                        yield sse_response(event, {})
+                for content in ocr_client.perform_ocr_stream(img):
+                    yield sse_response('chunk', {'content': content})
+                yield sse_response('finish', {})
 
             except Exception as e:
-                logger.error(f'Streaming generation failed: {str(e)}')
+                logger.error(f'Streaming OCR failed: {str(e)}')
                 yield sse_response('error', {'message': str(e)})
 
         return Response(
@@ -144,37 +128,15 @@ class StreamGenerateCode(Resource):
             headers={
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
-                'X-Accel-Buffering': 'no',  # 禁用 Nginx 缓冲
+                'X-Accel-Buffering': 'no',
                 'Access-Control-Allow-Origin': request.headers.get('Origin', '*'),
                 'Access-Control-Allow-Credentials': 'true'
             }
         )
 
 
-class OCRProcessor(Resource):
-    @login_required
-    def post(self):
-        file = request.files.get('image')
-        if not file or not file.filename:
-            raise APIError("No image file provided", 400)
-        
-        # 验证文件类型
-        allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'webp'}
-        if not file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
-            raise APIError("Invalid file type. Only image files are allowed", 400)
-        
-        # 验证文件大小 (最大 5MB)
-        if file.content_length > 5 * 1024 * 1024:
-            raise APIError("File too large. Maximum size is 5MB", 400)
-
-        with NamedTemporaryFile('wb+', delete=True) as image_file:
-            Image.open(file).save(image_file, format='JPEG')
-            image_file.flush()
-            return {'text': ocr_client.perform_ocr(image_file.name)}, 200
-
 # 蓝图注册
 from flask import Blueprint
 ai_bp = Blueprint('ai', __name__)
-ai_bp.add_url_rule('/generate', view_func=GenerateCode.as_view('generate_code'))
 ai_bp.add_url_rule('/stream-generate', view_func=StreamGenerateCode.as_view('stream_generate_code'))
-ai_bp.add_url_rule('/ocr', view_func=OCRProcessor.as_view('ocr_processor'))
+ai_bp.add_url_rule('/stream-ocr', view_func=StreamOCR.as_view('stream_ocr'))

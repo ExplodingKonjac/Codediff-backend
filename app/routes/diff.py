@@ -15,9 +15,10 @@ import string
 import random
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
-request_stop_set = set()
+
 
 def judge(testcase: TestCase,
           gen_exe_file: os.PathLike | None,
@@ -132,7 +133,12 @@ class StartDiff(Resource):
         )
 
     def diff(self, session_id, user_code, std_code, gen_code, max_tests, checker):
-        request_stop_set.discard(session_id)
+        session = Session.query.get(session_id)
+        if session:
+            session.stop_requested = False
+            db.session.commit()
+        
+        last_check_time = time.time()
 
         # delete old data
         TestCase.query.filter_by(session_id=session_id).delete()
@@ -176,8 +182,17 @@ class StartDiff(Resource):
                         'test_num': i,
                         'test_case': testcase.to_dict()
                     })
-                    if not ret or session_id in request_stop_set:
+
+                    if not ret:
                         break
+
+                    # Check for stop signal every 1 second
+                    if time.time() - last_check_time > 1.0:
+                        db.session.refresh(session)
+                        if session.stop_requested:
+                            break
+                        last_check_time = time.time()
+
             finally:
                 db.session.commit()
 
@@ -189,8 +204,10 @@ class StopDiff(Resource):
     def post(self, session_id):
         """停止当前对拍"""
         # 实际实现需要维护执行进程映射
-        # 简化版：标记会话为停止状态
-        request_stop_set.add(session_id)
+        # 标记会话为停止状态
+        session = Session.query.get_or_404(session_id)
+        session.stop_requested = True
+        db.session.commit()
         return {'stopped': True, 'session_id': session_id}, 200
 
 
@@ -228,7 +245,11 @@ class RerunDiff(Resource):
         )
     
     def rerun(self, session_id, user_code, std_code, checker):
-        request_stop_set.discard(session_id)
+        session = Session.query.get_or_404(session_id)
+        session.stop_requested = False
+        db.session.commit()
+        
+        last_check_time = time.time()
 
         session = Session.query.get_or_404(session_id)
         test_cases = session.test_cases
@@ -264,8 +285,17 @@ class RerunDiff(Resource):
                         'test_num': i,
                         'test_case': testcase.to_dict()
                     })
-                    if not ret or session_id in request_stop_set:
+
+                    if not ret:
                         break
+
+                    # Check for stop signal every 1 second
+                    if time.time() - last_check_time > 1.0:
+                        db.session.refresh(session)
+                        if session.stop_requested:
+                            break
+                        last_check_time = time.time()
+
             finally:
                 db.session.commit()
 

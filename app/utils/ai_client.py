@@ -1,12 +1,14 @@
 from openai import OpenAI
-from anthropic import Anthropic
 from base64 import b64encode
 from flask import current_app
 from app.exceptions import APIError
+from PIL import Image
 import logging
-import os
+import base64
+import io
 
 logger = logging.getLogger(__name__)
+
 
 class CodeGenerationClient:
     GENERATOR_SYSTEM_PROMPT = """
@@ -84,125 +86,107 @@ Generate the brute-force C++17 solution for the following problem:
 {}
 """
 
-    def __init__(self):
-        pass
-
-    def _get_ai_config(self, user_config):
-        """获取 AI 配置，优先使用用户配置"""
-        api_key = user_config.get('api_key')
-        api_url = user_config.get('api_url')
-
-        if not api_key or not api_url:
-            raise ValueError('AI API configuration is missing')
-
-        return {
-            'api_key': api_key,
-            'api_url': api_url,
-            'model': user_config.get('model', '')
-        }
-
-    def get_completion(self, api_key, api_url, ai_model, system_prompt, user_question):
-        client = OpenAI(api_key=api_key, base_url=api_url)
-        completion = client.chat.completions.create(
-            model=ai_model,
+    def __init__(self, api_key, base_url, ai_model):
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._ai_model = ai_model
+    
+    def _construct_completion(self, system_prompt, user_question, stream: bool = False):
+        return self._client.chat.completions.create(
+            model=self._ai_model,
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_question}
             ],
+            stream=stream,
             timeout=current_app.config['AI_TIMEOUT']
         )
-        content = completion.choices[0].message.content
-        return '\n'.join(filter(lambda line: line.find('```') == -1, content.split('\n')))
 
-    def stream_completion(self, api_key, api_url, ai_model, system_prompt, user_question):
-        """流式获取AI完成响应"""
-        try:
-            client = OpenAI(api_key=api_key, base_url=api_url)
-            stream = client.chat.completions.create(
-                model=ai_model,
-                messages=[
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_question}
-                ],
-                stream=True,
-                timeout=current_app.config['AI_TIMEOUT']
-            )
+    def _stream_completion(self, system_prompt, user_question):
+        stream = self._construct_completion(
+            system_prompt,
+            user_question,
+            stream=True
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if (content := getattr(delta, 'content', None)) is not None:
+                yield content
 
-            for chunk in stream:
-                delta = chunk.choices[0].delta
-                if (content := getattr(delta, 'content', None)) is not None:
-                    yield 'code_chunk', content
-            yield 'finish', None
-
-        except Exception as e:
-            logger.error(f'Streaming completion failed: {str(e)}')
-            yield 'error', str(e)
-
-    def generate_generator(self, context, api_key, api_url, ai_model):
+    def generate_generator(self, context):
         if 'description' not in context:
             raise APIError('You must provided problem description')
 
-        return self.get_completion(
-            api_key, api_url, ai_model,
+        return self._construct_completion(
             self.GENERATOR_SYSTEM_PROMPT,
             self.GENERATOR_USER_PROMPT.format(context['description'])
         )
 
-    def generate_standard(self, context, api_key, api_url, ai_model):
+    def generate_standard(self, context):
         if 'description' not in context:
             raise APIError('You must provided problem description')
 
-        return self.get_completion(
-            api_key, api_url, ai_model,
-            self.STANDARD_SYSTEM_PROMPT,
-            self.STANDARD_USER_PROMPT.format(context['description']),
-        )
-
-    def generate_generator_stream(self, context, api_key, api_url, ai_model):
-        if 'description' not in context:
-            raise APIError('You must provided problem description')
-
-        return self.stream_completion(
-            api_key, api_url, ai_model,
-            self.GENERATOR_SYSTEM_PROMPT,
-            self.GENERATOR_USER_PROMPT.format(context['description']),
-        )
-
-    def generate_standard_stream(self, context, api_key, api_url, ai_model):
-        if 'description' not in context:
-            raise APIError('You must provided problem description')
-
-        return self.stream_completion(
-            api_key, api_url, ai_model,
+        return self._construct_completion(
             self.STANDARD_SYSTEM_PROMPT,
             self.STANDARD_USER_PROMPT.format(context['description'])
         )
 
-class OCRClient:
-    PROMPT = """
-The image given to you contains description of a programming problem, in Chinese or English. You should output the ORIGINAL content in markdown format. DON'T change the expressions. DON'T change the language. Ouput markdown format text ONLY.
-"""
-    def __init__(self) -> None:
-        self._client = Anthropic()
-    
-    def perform_ocr(self, image_path: str | os.PathLike):
-        with open(image_path, 'rb') as f:
-            image_base64 = b64encode(f.read()).decode('ascii')
+    def generate_generator_stream(self, context):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
 
-        user_content = [
-            {
-                'type': 'image',
-                'source': {
-                    'type': 'base64',
-                    'media_type': 'image/jpeg',
-                    'data': image_base64
-                }
-            },
-            {'type': 'text', 'text': self.PROMPT}
-        ]
-        message = self._client.messages.create(
-            max_tokens=2048,
-            messages=[{'role': 'user', 'content': user_content}],
-            model='claude-haiku-4-5',
+        return self._stream_completion(
+            self.GENERATOR_SYSTEM_PROMPT,
+            self.GENERATOR_USER_PROMPT.format(context['description'])
         )
-        return '\n'.join(i.text for i in message.content if i.type == 'text')
+
+    def generate_standard_stream(self, context):
+        if 'description' not in context:
+            raise APIError('You must provided problem description')
+
+        return self._stream_completion(
+            self.STANDARD_SYSTEM_PROMPT,
+            self.STANDARD_USER_PROMPT.format(context['description'])
+        )
+
+
+class OCRClient:
+    SYSTEM_PROMPT = """
+Extract the original programming problem description from the provided image, which may be in Chinese or English. Output the content strictly in markdown format, preserving all expressions and the original language. If no programming problem description is found in the image, respond with 'Problem description not found' only.
+"""
+    def __init__(self, api_key, base_url, ai_model) -> None:
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._ai_model = ai_model
+    
+    @classmethod
+    def _get_data_url(cls, image: Image):
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG')
+        return 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode('utf-8')
+    
+    def _construct_completion(self, image: Image, stream: bool = False):
+        messages = [
+            {'role': 'system', 'content': self.SYSTEM_PROMPT},
+            {'role': 'user', 'content': [
+                {
+                    'type': 'image_url',
+                    'image_url': {'url': self._get_data_url(image)}
+                }
+            ]}
+        ]
+        return self._client.chat.completions.create(
+            model=self._ai_model,
+            messages=messages,
+            stream=stream,
+            timeout=current_app.config['AI_TIMEOUT']
+        )
+    
+    def perform_ocr(self, image: Image):
+        completion = self._construct_completion(image)
+        return completion.choices[0].message.content
+
+    def perform_ocr_stream(self, image: Image):
+        stream = self._construct_completion(image, stream=True)
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if (content := getattr(delta, 'content', None)) is not None:
+                yield content
