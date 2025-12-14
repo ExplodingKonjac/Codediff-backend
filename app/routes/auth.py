@@ -154,8 +154,25 @@ class UserProfile(Resource):
                 raise APIError('Current password is required', 400)
             if not user.check_password(data['password']):
                 raise APIError('Current password is incorrect', 403)
+            
+            # 验证验证码
+            if 'verification_code' not in data:
+                raise APIError('Verification code is required', 400)
+                
+            ver_code = VerificationCode.query.filter_by(
+                email=data['email'], 
+                code=data['verification_code'],
+                used=False
+            ).order_by(VerificationCode.created_at.desc()).first()
+            
+            if not ver_code or not ver_code.is_valid():
+                raise APIError('Invalid or expired verification code', 400)
+            
             if User.query.filter_by(email=data['email']).first():
                 raise APIError('Email already exists', 409)
+                
+            # 标记验证码已使用
+            ver_code.used = True
             user.email = data['email']
         
         if 'ai_api_key' in data:

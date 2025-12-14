@@ -167,5 +167,5 @@ class SessionDetail(Resource):
 # 蓝图注册
 from flask import Blueprint
 sessions_bp = Blueprint('sessions', __name__)
-sessions_bp.add_url_rule('/', view_func=SessionList.as_view('session_list'))
+sessions_bp.add_url_rule('', view_func=SessionList.as_view('session_list'), strict_slashes=False)
 sessions_bp.add_url_rule('/<int:session_id>', view_func=SessionDetail.as_view('session_detail'))
