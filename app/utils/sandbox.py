@@ -72,19 +72,19 @@ def launch_sandbox(cmd, rlim_cpu, rlim_as, rlim_fsz, extra_args=[], input_data =
             current_app.logger.error(f"Sandbox execution failed. stderr: {stderr}")
             current_app.logger.error(f"Sandbox stdout: {stdout}")
             current_app.logger.error(f"Data buffer size: {len(data_buf)}")
-            raise SandboxError(f"Sandbox failed to return valid data: {e}. Stderr: {stderr}")
+            raise SandboxError(f"Sandbox failed to return valid data: {e}. stderr: {stderr}")
 
     return data, stdout, stderr
 
-def run_compiler(code, out, lang, std):
+def run_compiler(code: str, out: str, lang: str, std: str, optimize_level: int = 2):
     time_limit = current_app.config['COMPILER_TIME_LIMIT']
     memory_limit = current_app.config['COMPILER_MEMORY_LIMIT'] * 1024 * 1024
     output_limit = current_app.config['COMPILER_OUTPUT_LIMIT'] * 1024
 
     if lang.lower() == 'c':
-        cmd = ['gcc', '-x', 'c', f'-std={std}', '-O2', 'code', '-o', 'out']
+        cmd = ['gcc', '-x', 'c', f'-std={std}', f'-O{optimize_level}', 'code', '-o', 'out']
     elif lang.lower() == 'cpp':
-        cmd = ['g++', '-x', 'c++', f'-std={std}', '-O2', 'code', '-o', 'out']
+        cmd = ['g++', '-x', 'c++', f'-std={std}', f'-O{optimize_level}', 'code', '-o', 'out']
     else:
         raise SandboxError("Unknown language")
 
@@ -96,7 +96,8 @@ def run_compiler(code, out, lang, std):
         extra_args=[
             '--ro-bind', code, '/home/code',
             '--bind', out, '/home/out',
-            '--bind', current_app.config['TESTLIB_PATH'], '/home/testlib.h' 
+            '--ro-bind', current_app.config['TESTLIB_PATH'], '/home/testlib.h',
+            '--ro-bind', current_app.config['TESTLIB_PATH'] + '.gch/', '/home/testlib.h.gch/',
         ]
     )
 

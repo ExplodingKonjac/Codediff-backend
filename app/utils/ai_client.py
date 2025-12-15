@@ -70,7 +70,6 @@ Write the data generator for the following problem:
     - Implement the most direct, mathematically obvious solution. **Do not optimize.** Use methods like: complete enumeration, DFS/BFS for state-space search, or direct simulation.
 
 2.  **Value Range Safety (The "Correctness" Rule):**
-    - **Parameters Affecting Value (e.g., $A_i, V$):** Treat the magnitude and range of these parameters **very seriously**. Do not assume they are small.
     - **Data Types:** Use `long long` (`int64_t`) by default for *all* integer arithmetic (inputs, variables, intermediate results, and outputs) to prevent overflow, unless the problem guarantees all values fit in a 32-bit `int`. Use `double` or `long double` for floating-point values as appropriate.
     - **Logical Correctness is paramount.** The code must produce the exact right answer for valid inputs, handling large values and negative values correctly.
     - Handle all edge cases (e.g., $N=0$, empty arrays) as defined by the problem.
@@ -160,7 +159,7 @@ Extract the original programming problem description from the provided image, wh
     @classmethod
     def _get_data_url(cls, image: Image):
         buffer = io.BytesIO()
-        image.save(buffer, format='JPEG')
+        image.convert('RGB').save(buffer, format='JPEG')
         return 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode('utf-8')
     
     def _construct_completion(self, image: Image, stream: bool = False):

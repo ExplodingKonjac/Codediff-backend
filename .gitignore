@@ -16,6 +16,7 @@ tools/**/*
 !tools/Makefile
 !tools/**/
 !tools/**/*.*
+tools/*.gch
 
 .env
 *.log

@@ -157,7 +157,13 @@ class StartDiff(Resource):
                 exe_file = temp_dir / f'{s}_exe'
                 code_file.write_text(code['content'])
                 exe_file.touch()
-                type, data = run_compiler(code_file, exe_file, code['lang'], code['std'])
+                type, data = run_compiler(
+                    code_file,
+                    exe_file,
+                    code['lang'],
+                    code['std'],
+                    0 if s == 'gen' else 2
+                )
                 data['message'] = f"{s} code: {data['message']}"
 
                 yield sse_response(type, data)
