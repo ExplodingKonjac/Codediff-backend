@@ -67,6 +67,14 @@ def register_error_handlers(app):
         logger.error(f'API Error [{error.status_code}]: {error.message}')
         return jsonify(response), error.status_code
     
+    from marshmallow.exceptions import ValidationError as MarshmallowValidationError
+    
+    @app.errorhandler(MarshmallowValidationError)
+    def handle_marshmallow_validation_error(error):
+        """处理 Marshmallow 验证错误"""
+        # error.messages 是一个字典，包含字段和对应的错误列表
+        return handle_api_error(ValidationError(error.messages, "Validation failed"))
+    
     @app.errorhandler(HTTPException)
     def handle_http_exception(error):
         """处理 HTTP 异常"""

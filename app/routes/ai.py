@@ -1,13 +1,12 @@
-from flask import request, stream_with_context, Response, current_app
+from flask import request, current_app, stream_with_context, Response
 from flask_restful import Resource
 from flask_login import login_required, current_user
-# from pix2text import Pix2Text
-from tempfile import NamedTemporaryFile
 from PIL import Image
 from app.models import Session
+from app.exceptions import APIError, AuthorizationError
+from app.schemas.ai import StreamGenerateCodeQuerySchema
 from app.utils.ai_client import CodeGenerationClient, OCRClient
 from app.utils.sse import sse_response
-from app.exceptions import APIError, AuthorizationError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,9 +15,17 @@ logger = logging.getLogger(__name__)
 class StreamGenerateCode(Resource):
     @login_required
     def get(self):
+        # Validate query params (Will raise ValidationError handled globally)
+        schema = StreamGenerateCodeQuerySchema()
+        args = schema.load(request.args)
+        # Note: session_id is validated as integer by schema
+        
+        gen_type = args['type']
+        session_id = args['session_id']
+
         def generate_events():
             try:
-                yield from self.generate()
+                yield from self.generate(gen_type, session_id)
             except Exception as e:
                 logger.error(f'Streaming generation failed: {str(e)}')
                 yield sse_response('error', {'message': str(e)})
@@ -35,14 +42,8 @@ class StreamGenerateCode(Resource):
             }
         )
     
-    def generate(self):
+    def generate(self, gen_type, session_id):
         user_id = current_user.id
-
-        if not request.args or 'type' not in request.args or 'session_id' not in request.args:
-            raise APIError("Missing required fields")
-
-        gen_type = request.args['type']
-        session_id = int(request.args['session_id'])
 
         # 获取会话
         session = Session.query.get_or_404(session_id)
@@ -104,9 +105,14 @@ class StreamOCR(Resource):
                 if file.content_length > 5 * 1024 * 1024:
                     raise APIError("File too large. Maximum size is 5MB", 400)
                 
-                api_key = current_app.config['SYSTEM_OCR_API_KEY']
-                api_url = current_app.config['SYSTEM_OCR_API_URL']
-                ai_model = current_app.config['SYSTEM_OCR_API_MODEL']
+                if not current_user.ocr_api_key or not current_user.ocr_api_url or not current_user.ocr_api_model:
+                    api_key = current_app.config['SYSTEM_OCR_API_KEY']
+                    api_url = current_app.config['SYSTEM_OCR_API_URL']
+                    ai_model = current_app.config['SYSTEM_OCR_API_MODEL']
+                else:
+                    api_key = current_user.ocr_api_key
+                    api_url = current_user.ocr_api_url
+                    ai_model = current_user.ocr_api_model
 
                 ocr_client = OCRClient(api_key, api_url, ai_model)
                 

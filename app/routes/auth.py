@@ -4,6 +4,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app.models import User, VerificationCode
 from app.extensions import db
 from app.exceptions import APIError
+from app.schemas.auth import SendVerificationCodeSchema, RegisterSchema, LoginSchema, UserProfileUpdateSchema
 from app.utils.email_sender import send_verification_email
 import random
 from datetime import datetime, timedelta, timezone
@@ -11,10 +12,9 @@ from datetime import datetime, timedelta, timezone
 class SendVerificationCode(Resource):
     def post(self):
         """发送验证码"""
-        data = request.get_json()
-        if not data or 'email' not in data:
-            raise APIError('Email is required', 400)
-            
+        schema = SendVerificationCodeSchema()
+        data = schema.load(request.get_json())
+        
         email = data['email']
         
         # 检查邮箱是否已被注册
@@ -44,11 +44,8 @@ class Register(Resource):
     
     def post(self):
         """用户注册"""
-        data = request.get_json()
-        
-        required_fields = ('username', 'email', 'password', 'verification_code')
-        if not data or not all(k in data for k in required_fields):
-            raise APIError('Missing required fields', 400)
+        schema = RegisterSchema()
+        data = schema.load(request.get_json())
         
         # 验证验证码
         ver_code = VerificationCode.query.filter_by(
@@ -76,7 +73,10 @@ class Register(Resource):
             email=data['email'],
             ai_api_key=data.get('ai_api_key', ''),
             ai_api_url=data.get('ai_api_url', ''),
-            ai_model=data.get('ai_model', '')
+            ai_model=data.get('ai_model', ''),
+            ocr_api_key=data.get('ocr_api_key', ''),
+            ocr_api_url=data.get('ocr_api_url', ''),
+            ocr_model=data.get('ocr_model', '')
         )
         user.set_password(data['password'])
         
@@ -95,27 +95,23 @@ class Login(Resource):
     
     def post(self):
         """用户登录"""
-        data = request.get_json()
-        
-        if not data or not all(k in data for k in ('identifier', 'password')):
-            raise APIError('Missing credentials', 400)
+        schema = LoginSchema()
+        data = schema.load(request.get_json())
         
         # 尝试按用户名或邮箱查找
         user = User.query.filter(
             (User.username == data['identifier']) | (User.email == data['identifier'])
         ).first()
         
-        if not user or not user.check_password(data['password']):
-            raise APIError('Invalid credentials', 401)
+        if not user:
+            raise APIError('Unknown user', 401)
+        if not user.check_password(data['password']):
+            raise APIError('Incorrect password', 401)
         
         # Flask-Login 登录
         remember = data.get('remember', False)
         if not login_user(user, remember=remember):
              raise APIError('Login failed', 400) # Should verify calling login_user
-
-        # 更新最后登录时间
-        # user.last_login = db.func.current_timestamp() # Model doesn't have last_login, verify?
-        # db.session.commit()
         
         return {'user': user.to_dict(), 'message': 'Login successful'}
 
@@ -140,20 +136,13 @@ class UserProfile(Resource):
     @login_required
     def put(self):
         """更新当前用户信息"""
-        data = request.get_json()
+        schema = UserProfileUpdateSchema()
+        data = schema.load(request.get_json())
         user = current_user
         
-        # 更新可修改字段
-        if 'username' in data and data['username'] != user.username:
-            if User.query.filter_by(username=data['username']).first():
-                raise APIError('Username already exists', 409)
-            user.username = data['username']
-        
+        # 1. Handle Email Update (Verification Required)
         if 'email' in data and data['email'] != user.email:
-            if 'password' not in data:
-                raise APIError('Current password is required', 400)
-            if not user.check_password(data['password']):
-                raise APIError('Current password is incorrect', 403)
+            self._verify_sensitive_action(data, user)
             
             # 验证验证码
             if 'verification_code' not in data:
@@ -175,24 +164,30 @@ class UserProfile(Resource):
             ver_code.used = True
             user.email = data['email']
         
-        if 'ai_api_key' in data:
-            user.ai_api_key = data['ai_api_key']
-        
-        if 'ai_api_url' in data:
-            user.ai_api_url = data['ai_api_url']
-        
-        if 'ai_model' in data:
-            user.ai_model = data['ai_model']
-        
+        # 2. Handle Password Update
         if 'new_password' in data:
-            if 'password' not in data:
-                raise APIError('Current password is required', 400)
-            if not user.check_password(data['password']):
-                raise APIError('Current password is incorrect', 403)
+            self._verify_sensitive_action(data, user)
             user.set_password(data['new_password'])
+
+        # 3. Handle Simple Fields Update
+        simple_fields = [
+            'ai_api_key', 'ai_api_url', 'ai_model', 
+            'ocr_api_key', 'ocr_api_url', 'ocr_model'
+        ]
+        for field in simple_fields:
+            if field in data:
+                setattr(user, field, data[field])
         
         db.session.commit()
         return user.to_dict()
+
+    def _verify_sensitive_action(self, data, user):
+        """验证敏感操作所需的密码校验"""
+        if 'password' not in data:
+            raise APIError('Current password is required', 400)
+        if not user.check_password(data['password']):
+            raise APIError('Current password is incorrect', 403)
+
 
 from flask import Blueprint
 auth_bp = Blueprint('auth', __name__)

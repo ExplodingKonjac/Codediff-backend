@@ -1,10 +1,10 @@
-from flask import request, Response, stream_with_context
+from flask import request, current_app, Response, stream_with_context
 from flask_restful import Resource
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.exceptions import AuthenticationError, AuthorizationError
-from flask import current_app
 from app.models import Session, TestCase
+from app.schemas.diff import StartDiffQuerySchema, RerunDiffQuerySchema
 from app.utils.sandbox import run_compiler, run_program, run_checker
 from app.utils.sse import sse_response
 from tempfile import TemporaryDirectory, NamedTemporaryFile
@@ -89,6 +89,13 @@ def judge(testcase: TestCase,
 class StartDiff(Resource):
     @login_required
     def get(self, session_id):
+        
+        # 验证与解析参数 (Will raise ValidationError handled globally)
+        schema = StartDiffQuerySchema()
+        args = schema.load(request.args)
+        max_tests = args['max_tests']
+        checker = args['checker']
+
         def generator():
             try:
                 # 获取当前用户
@@ -103,11 +110,6 @@ class StartDiff(Resource):
                 # 验证权限
                 if session.user_id != user_id:
                     raise AuthorizationError("Not your session")
-
-                # 获取参数
-                max_tests = int(request.args.get('max_tests', 100))
-                checker = str(request.args.get('checker', 'wcmp'))
-                max_tests = max(min(max_tests, 1000), 1)
                 
                 # 保存原始代码
                 user_code = session.user_code.copy() if session.user_code else {}
@@ -220,6 +222,12 @@ class StopDiff(Resource):
 class RerunDiff(Resource):
     @login_required
     def get(self, session_id):
+        
+        # 验证与解析参数 (Will raise ValidationError handled globally)
+        schema = RerunDiffQuerySchema()
+        args = schema.load(request.args)
+        checker = args['checker']
+
         """重新测试现有数据 (SSE 流)"""
         def generator():
             try:
@@ -229,8 +237,6 @@ class RerunDiff(Resource):
                 if session.user_id != user_id:
                     raise AuthorizationError("Not your session")
                 
-                checker = str(request.args.get('checker', 'wcmp'))
-
                 # 保存原始代码
                 user_code = session.user_code.copy()
                 std_code = session.std_code.copy()
