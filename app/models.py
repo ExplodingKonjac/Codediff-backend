@@ -20,7 +20,9 @@ class User(UserMixin, db.Model):
     ai_model = db.Column(db.String(32))
     ocr_api_key = db.Column(db.String(128))
     ocr_api_url = db.Column(db.String(255))
+    ocr_api_url = db.Column(db.String(255))
     ocr_model = db.Column(db.String(32))
+    role = db.Column(db.String(20), server_default='user', nullable=False)
     created_at = db.Column(db.DateTime, default=_now_fn)
     updated_at = db.Column(db.DateTime, default=_now_fn, onupdate=_now_fn)
     
@@ -42,7 +44,9 @@ class User(UserMixin, db.Model):
             'ai_model': self.ai_model,
             'ocr_api_key': self.ocr_api_key,
             'ocr_api_url': self.ocr_api_url,
+            'ocr_api_url': self.ocr_api_url,
             'ocr_model': self.ocr_model,
+            'role': self.role,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }

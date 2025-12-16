@@ -5,6 +5,7 @@ from app.routes.auth import auth_bp
 from app.routes.sessions import sessions_bp
 from app.routes.diff import diff_bp
 from app.routes.ai import ai_bp
+from app.routes.admin import admin_bp
 from app.exceptions import register_error_handlers
 import logging
 import time
@@ -40,6 +41,7 @@ def create_app(config_name='default'):
     app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
     app.register_blueprint(diff_bp, url_prefix='/api/diff')
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
     
     # 注册错误处理器
     register_error_handlers(app)
