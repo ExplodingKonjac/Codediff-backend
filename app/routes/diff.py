@@ -28,7 +28,7 @@ def judge(testcase: TestCase,
     # run generator if exists
     if gen_exe_file is not None:
         random_token = ''.join(random.choice(string.ascii_letters) for _ in range(16))
-        gen_result, input_data, _, _, _ = run_program(gen_exe_file, [random_token])
+        gen_result, input_data, stderr, _, _ = run_program(gen_exe_file, [random_token])
 
         testcase.input_data = input_data
         if gen_result['type'] != 'OK':
@@ -36,6 +36,10 @@ def judge(testcase: TestCase,
             testcase.detail = f"Generator {gen_result['type']}"
             if gen_result['type'] == 'RE':
                 testcase.detail += f" ({Signals(gen_result['code']).name})"
+            return False
+        elif gen_result['code'] != 0:
+            testcase.status = f"Generator RE"
+            testcase.detail = stderr
             return False
     else:
         input_data = testcase.input_data
