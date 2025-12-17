@@ -45,6 +45,7 @@ The user will provide the problem details in two distinct, mandatory sections:
     - **Diversity:** Cases where all elements are maximally diverse (distinct, or covering the full range of $1$ to $10^9$).
     - **Ordering:** Strictly sorted or strictly reverse-sorted inputs (if order matters).
     - **Problem-Specific Edges:** Zeroes, negative numbers (if allowed), large prime numbers, or structures like linear chains/stars in graphs.
+    - **Critical Clarification:** Edge case coverage means that when the generator is run multiple times, it'll generate data that covers most of the edge cases with rather high probability. The generator should generate ONLY ONE test in a single run.
 
 ## Final Output
 
